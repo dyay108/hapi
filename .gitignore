@@ -17,6 +17,8 @@ shared/tools/tunwg/*.exe
 **/.env
 **/.env.*
 **/.env*.local
+!**/.env.example
+/data/
 
 # Logs
 **/*.log
