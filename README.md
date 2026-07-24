@@ -36,6 +36,7 @@ For self-hosted options (Cloudflare Tunnel, Tailscale), see [Installation](docs/
 ## Docs
 
 - [App](docs/guide/pwa.md)
+- [Docker](docs/guide/docker.md)
 - [How it Works](docs/guide/how-it-works.md)
 - [Cursor Agent](docs/guide/cursor.md)
 - [Grok Build](docs/guide/grok.md)
