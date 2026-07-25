@@ -2,9 +2,11 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, ty
 import type { ApiClient } from '@/api/client'
 import type { CodexLocalSessionSummary, Machine } from '@/types/api'
 import type { GrokPermissionMode } from '@hapi/protocol'
+import { mergeClaudeModelOptions } from '@hapi/protocol'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useMachinePathsExists } from '@/hooks/useMachinePathsExists'
 import { useSpawnSession } from '@/hooks/mutations/useSpawnSession'
+import { useClaudeModels } from '@/hooks/queries/useClaudeModels'
 import { useCodexModels } from '@/hooks/queries/useCodexModels'
 import { useCursorModelsForMachine } from '@/hooks/queries/useCursorModelsForMachine'
 import { useOpencodeModelsForCwd } from '@/hooks/queries/useOpencodeModelsForCwd'
@@ -257,6 +259,11 @@ export function NewSession(props: {
         () => (machineId ? props.machines.find((machine) => machine.id === machineId) ?? null : null),
         [machineId, props.machines]
     )
+    const claudeModelsState = useClaudeModels({
+        api: props.api,
+        machineId,
+        enabled: agent === 'claude' && Boolean(machineId)
+    })
     const codexModelsState = useCodexModels({
         api: props.api,
         machineId,
@@ -266,6 +273,16 @@ export function NewSession(props: {
         () => formatRunnerSpawnError(selectedMachine),
         [selectedMachine]
     )
+    // Models discovered on the selected machine, unioned with the static presets
+    // so an unreachable machine or a failed probe never shrinks the list.
+    const claudeModelOptions = useMemo(() => ([
+        { value: 'auto', label: 'Default' },
+        ...mergeClaudeModelOptions(claudeModelsState.models, model).map((option) => ({
+            value: option.value,
+            label: option.label,
+            ...(option.description ? { description: option.description } : {})
+        }))
+    ]), [claudeModelsState.models, model])
     const codexModelOptions = useMemo(() => {
         const options = [{ value: 'auto', label: 'Default' }]
         for (const codexModel of codexModelsState.models) {
@@ -1105,12 +1122,15 @@ export function NewSession(props: {
                         agent={agent}
                         model={model}
                         options={
-                            agent === 'codex'
+                            agent === 'claude'
+                                ? claudeModelOptions
+                                : agent === 'codex'
                                 ? codexModelOptions
                                 : agent === 'grok'
                                     ? grokModelOptions
                                 : undefined
                         }
+                        allowCustomModel={agent === 'claude'}
                         isDisabled={
                             isFormDisabled
                             || (agent === 'codex' && Boolean(codexModelsState.error))

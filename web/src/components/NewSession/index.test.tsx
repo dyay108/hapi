@@ -53,6 +53,17 @@ vi.mock('@/hooks/useDirectorySuggestions', () => ({
 vi.mock('@/hooks/useActiveSuggestions', () => ({
     useActiveSuggestions: () => [[], -1, vi.fn(), vi.fn(), vi.fn()]
 }))
+vi.mock('@/hooks/queries/useClaudeModels', () => ({
+    useClaudeModels: () => ({
+        models: [
+            { value: 'default', displayName: 'Default (recommended)', resolvedModel: 'claude-sonnet-5' },
+            { value: 'sonnet', displayName: 'Sonnet', resolvedModel: 'claude-sonnet-5' },
+            { value: 'haiku', displayName: 'Haiku' }
+        ],
+        isLoading: false,
+        error: null
+    })
+}))
 vi.mock('@/hooks/queries/useCodexModels', () => ({
     useCodexModels: () => ({
         models: [

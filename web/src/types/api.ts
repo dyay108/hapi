@@ -9,6 +9,8 @@ import type {
 } from '@hapi/protocol/types'
 
 export type {
+    ClaudeModelsResponse,
+    ClaudeModelSummary,
     CodexModelsResponse,
     CodexModelSummary,
     CommandResponse,

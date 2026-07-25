@@ -27,6 +27,7 @@ export const RPC_METHODS = {
     Bash: 'bash',
     ListSlashCommands: 'listSlashCommands',
     ListSkills: 'listSkills',
+    ListClaudeModels: 'listClaudeModels',
     ListCodexModels: 'listCodexModels',
     ListCodexSessions: 'listCodexSessions',
     ArchiveCodexSession: 'archiveCodexSession',

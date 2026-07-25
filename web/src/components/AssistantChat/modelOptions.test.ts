@@ -49,6 +49,45 @@ describe('getModelOptionsForFlavor', () => {
         ])
     })
 
+    it('offers models discovered on the machine that no preset knows about', () => {
+        // A model Anthropic ships after this build is selectable with no code change.
+        const options = getModelOptionsForFlavor('claude', null, [
+            { value: 'sonnet', label: 'Sonnet' },
+            { value: 'claude-opus-6-20270101', label: 'Opus 6' }
+        ])
+        expect(options.some((o) => o.value === 'claude-opus-6-20270101')).toBe(true)
+    })
+
+    it('keeps every preset when the discovered catalog omits the 1M variants', () => {
+        // Regression: the discovered catalog is account-specific and lists neither
+        // sonnet[1m] nor opus[1m]. Replacing the presets with it silently removed
+        // those options; discovery must only ever add.
+        const options = getModelOptionsForFlavor('claude', null, [
+            { value: 'sonnet', label: 'Sonnet' },
+            { value: 'opus', label: 'Opus' },
+            { value: 'haiku', label: 'Haiku' }
+        ])
+        for (const preset of ['sonnet', 'sonnet[1m]', 'opus', 'opus[1m]', 'fable', 'fable[1m]']) {
+            expect(options.some((o) => o.value === preset)).toBe(true)
+        }
+        expect(options.some((o) => o.value === 'haiku')).toBe(true)
+        expect(options.length).toBeGreaterThan(getModelOptionsForFlavor('claude').length)
+    })
+
+    it('prefers the discovered display name over the preset label', () => {
+        const options = getModelOptionsForFlavor('claude', null, [
+            { value: 'opus', label: 'Opus 5.1' }
+        ])
+        expect(options.find((o) => o.value === 'opus')?.label).toBe('Opus 5.1')
+    })
+
+    it('keeps the running Claude model selectable when discovery misses it', () => {
+        const options = getModelOptionsForFlavor('claude', 'claude-sonnet-9-20280101', [
+            { value: 'sonnet', label: 'Sonnet' }
+        ])
+        expect(options.some((o) => o.value === 'claude-sonnet-9-20280101')).toBe(true)
+    })
+
     it('includes custom Gemini model from env/config in options', () => {
         const options = getModelOptionsForFlavor('gemini', 'gemini-custom-experiment')
         expect(options.some((o) => o.value === 'gemini-custom-experiment')).toBe(true)

@@ -254,6 +254,9 @@ export default {
   'newSession.model.optional': 'optional',
   'newSession.model.loadFailed': 'Failed to load models',
   'newSession.model.selectVariant': 'Select variant',
+  'newSession.model.custom': 'Custom model…',
+  'newSession.model.customPlaceholder': 'e.g. claude-opus-5-20260514',
+  'newSession.model.customHint': 'Any model id your Claude Code install accepts.',
   'newSession.model.cursorUnavailable': 'No Cursor models yet. Start a Cursor session once, or use Default.',
   'newSession.opencodeModel.loading': 'Discovering OpenCode models…',
   'newSession.opencodeModel.loadFailed': 'Failed to load OpenCode models',
@@ -488,6 +491,8 @@ export default {
   'toolGroup.codex.searchIn': '{query} in {path}',
 
   // Composer buttons
+  'composer.model.custom': 'Custom model…',
+  'composer.model.customPlaceholder': 'Model id, then Enter',
   'composer.settings': 'Settings',
   'composer.terminal': 'Terminal',
   'composer.abort': 'Abort',

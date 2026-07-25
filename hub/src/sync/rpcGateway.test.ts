@@ -59,6 +59,15 @@ describe('RpcGateway RPC timeouts', () => {
         expect(timeouts).toEqual([30_000])
     })
 
+    it('uses an extended RPC timeout when listing Claude models', async () => {
+        const { gateway, timeouts } = createGateway()
+
+        // Discovery spawns a Claude Code process, so it must not use the 30s default.
+        await gateway.listClaudeModelsForMachine('machine-1')
+
+        expect(timeouts).toEqual([120_000])
+    })
+
     it('uses an extended RPC timeout when listing Codex models', async () => {
         const { gateway, timeouts } = createGateway()
 

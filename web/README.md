@@ -55,7 +55,7 @@ See `src/router.tsx` for route definitions.
 - Message thread with infinite scroll.
 - Composer for sending messages.
 - Permission mode toggle (default/acceptEdits/auto/bypassPermissions/plan).
-- Model selection (default/sonnet/sonnet[1m]/opus/opus[1m]).
+- Model selection (models discovered from the installed Claude Code CLI, unioned with the built-in presets, plus free-text entry for any other model id).
 - Session abort and mode switch controls.
 - Context size display.
 - Per-session scratchlist (`src/components/AssistantChat/ScratchlistPanel.tsx`)

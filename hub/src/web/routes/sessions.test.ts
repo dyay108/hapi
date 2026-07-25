@@ -69,6 +69,13 @@ function createApp(session: Session, opts?: {
     const applySessionConfig = async (sessionId: string, config: Record<string, unknown>) => {
         applySessionConfigCalls.push([sessionId, config])
     }
+    const listClaudeModelsForSession = async () => ({
+        success: true,
+        models: [
+            { value: 'sonnet', displayName: 'Sonnet', resolvedModel: 'claude-sonnet-5' },
+            { value: 'haiku', displayName: 'Haiku' }
+        ]
+    })
     const listCodexModelsForSession = async () => ({
         success: true,
         models: [
@@ -128,6 +135,7 @@ function createApp(session: Session, opts?: {
             ? { ok: true, sessionId: session.id, session }
             : { ok: false, reason: 'not-found' },
         applySessionConfig,
+        listClaudeModelsForSession,
         listCodexModelsForSession,
         listCursorModelsForSession,
         listOpencodeModelsForSession,
@@ -715,6 +723,35 @@ describe('sessions routes', () => {
         })
         expect(localResponse.status).toBe(409)
         expect(localApp.applySessionConfigCalls).toEqual([])
+    })
+
+    it('returns the discovered Claude catalog for active Claude sessions', async () => {
+        const { app } = createApp(createSession({
+            metadata: { path: '/tmp/project', host: 'localhost', flavor: 'claude' }
+        }))
+
+        const response = await app.request('/api/sessions/session-1/claude-models')
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({
+            success: true,
+            models: [
+                { value: 'sonnet', displayName: 'Sonnet', resolvedModel: 'claude-sonnet-5' },
+                { value: 'haiku', displayName: 'Haiku' }
+            ]
+        })
+    })
+
+    it('rejects Claude model discovery for non-Claude sessions', async () => {
+        const { app } = createApp(createSession())
+
+        const response = await app.request('/api/sessions/session-1/claude-models')
+
+        expect(response.status).toBe(400)
+        expect(await response.json()).toEqual({
+            success: false,
+            error: 'Claude models are only available for Claude sessions'
+        })
     })
 
     it('returns Codex models for active Codex sessions', async () => {

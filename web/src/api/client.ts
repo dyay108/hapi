@@ -25,6 +25,7 @@ import type {
     SessionsResponse
 } from '@/types/api'
 import type {
+    ClaudeModelsResponse,
     CodexModelsResponse,
     CursorMigrateOutcome,
     CursorMigrateToAcpRequest,
@@ -645,6 +646,18 @@ export class ApiClient {
                 permissionMode
             })
         })
+    }
+
+    async getMachineClaudeModels(machineId: string): Promise<ClaudeModelsResponse> {
+        return await this.request<ClaudeModelsResponse>(
+            `/api/machines/${encodeURIComponent(machineId)}/claude-models`
+        )
+    }
+
+    async getSessionClaudeModels(sessionId: string): Promise<ClaudeModelsResponse> {
+        return await this.request<ClaudeModelsResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/claude-models`
+        )
     }
 
     async getMachineCodexModels(machineId: string): Promise<CodexModelsResponse> {

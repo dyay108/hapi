@@ -71,6 +71,62 @@ describe('machines routes', () => {
         expect(capturedPermissionMode).toBe('auto')
     })
 
+    it('returns the discovered Claude catalog for an online machine', async () => {
+        const machine = createMachine()
+        const engine = {
+            getMachine: () => machine,
+            getMachineByNamespace: () => machine,
+            listClaudeModelsForMachine: async () => ({
+                success: true,
+                models: [
+                    { value: 'sonnet', displayName: 'Sonnet', resolvedModel: 'claude-sonnet-5' },
+                    { value: 'haiku', displayName: 'Haiku' }
+                ]
+            })
+        } as Partial<SyncEngine>
+
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine))
+
+        const response = await app.request('/api/machines/machine-1/claude-models')
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({
+            success: true,
+            models: [
+                { value: 'sonnet', displayName: 'Sonnet', resolvedModel: 'claude-sonnet-5' },
+                { value: 'haiku', displayName: 'Haiku' }
+            ]
+        })
+    })
+
+    it('reports Claude discovery failures as a 500 instead of throwing', async () => {
+        const machine = createMachine()
+        const engine = {
+            getMachine: () => machine,
+            getMachineByNamespace: () => machine,
+            listClaudeModelsForMachine: async () => {
+                throw new Error('CLI unreachable')
+            }
+        } as Partial<SyncEngine>
+
+        const app = new Hono<WebAppEnv>()
+        app.use('*', async (c, next) => {
+            c.set('namespace', 'default')
+            await next()
+        })
+        app.route('/api', createMachinesRoutes(() => engine as SyncEngine))
+
+        const response = await app.request('/api/machines/machine-1/claude-models')
+
+        expect(response.status).toBe(500)
+        expect(await response.json()).toEqual({ success: false, error: 'CLI unreachable' })
+    })
+
     it('returns Codex models for an online machine', async () => {
         const machine = createMachine()
         const engine = {

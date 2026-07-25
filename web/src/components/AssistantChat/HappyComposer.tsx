@@ -32,7 +32,7 @@ import { ComposerButtons } from '@/components/AssistantChat/ComposerButtons'
 import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { AttachmentItem } from '@/components/AssistantChat/AttachmentItem'
 import { useTranslation } from '@/lib/use-translation'
-import { getModelOptionsForFlavor, getNextModelForFlavor } from './modelOptions'
+import { getModelOptionsForFlavor, getNextModelForFlavor, type ModelOption } from './modelOptions'
 import { getClaudeComposerEffortOptions } from './claudeEffortOptions'
 import { getCodexComposerReasoningEffortOptions } from './codexReasoningEffortOptions'
 import { getDisplayedCodexServiceTier } from './codexFastMode'
@@ -152,7 +152,7 @@ export function HappyComposer(props: {
     contextWindow?: number | null
     controlledByUser?: boolean
     agentFlavor?: string | null
-    availableModelOptions?: Array<{ value: string | null; label: string }>
+    availableModelOptions?: ModelOption[]
     /** Full Pi model data with thinkingLevelMap for provider grouping + thinking level filtering */
     piModels?: PiModelSummary[]
     /** Pi: provider-qualified selected model from metadata (survives reload;
@@ -292,6 +292,8 @@ export function HappyComposer(props: {
         selection: { start: 0, end: 0 }
     })
     const [showSettings, setShowSettings] = useState(false)
+    const [isEnteringCustomModel, setIsEnteringCustomModel] = useState(false)
+    const [customModelDraft, setCustomModelDraft] = useState('')
     const [showPiModelPanel, setShowPiModelPanel] = useState(false)
     const [showPiThinkingPanel, setShowPiThinkingPanel] = useState(false)
     const [isAborting, setIsAborting] = useState(false)
@@ -739,6 +741,21 @@ export function HappyComposer(props: {
         haptic('light')
     }, [onModelChange, controlsDisabled, haptic])
 
+    // Escape hatch for Claude: model discovery is best-effort, so let the user
+    // name any id their Claude Code install accepts rather than only what the
+    // catalog and presets happen to cover.
+    const showCustomModelEntry = agentFlavor === 'claude' && Boolean(onModelChange)
+    useEffect(() => {
+        if (!showSettings) {
+            setIsEnteringCustomModel(false)
+        }
+    }, [showSettings])
+    const submitCustomModel = useCallback(() => {
+        const trimmed = customModelDraft.trim()
+        setIsEnteringCustomModel(false)
+        handleModelChange(trimmed || null)
+    }, [customModelDraft, handleModelChange])
+
     const handleModelEffortChange = useCallback((nextWireId: string | null) => {
         const handler = onModelEffortChange ?? onModelChange
         if (!handler || controlsDisabled) return
@@ -1035,7 +1052,7 @@ export function HappyComposer(props: {
                                             key={option.value ?? 'auto'}
                                             type="button"
                                             disabled={controlsDisabled}
-                                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                                            className={`flex w-full items-start gap-2 px-3 py-2 text-left text-sm transition-colors ${
                                                 controlsDisabled
                                                     ? 'cursor-not-allowed opacity-50'
                                                     : 'cursor-pointer hover:bg-[var(--app-secondary-bg)]'
@@ -1044,7 +1061,7 @@ export function HappyComposer(props: {
                                             onMouseDown={(e) => e.preventDefault()}
                                         >
                                             <div
-                                                className={`flex h-4 w-4 items-center justify-center rounded-full border-2 ${
+                                                className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${
                                                     isSelected
                                                         ? 'border-[var(--app-link)]'
                                                         : 'border-[var(--app-hint)]'
@@ -1054,13 +1071,69 @@ export function HappyComposer(props: {
                                                     <div className="h-2 w-2 rounded-full bg-[var(--app-link)]" />
                                                 )}
                                             </div>
-                                            <span className={isSelected ? 'text-[var(--app-link)]' : ''}>
-                                                {option.label}
-                                            </span>
+                                            <div className="min-w-0">
+                                                <div className={isSelected ? 'text-[var(--app-link)]' : ''}>
+                                                    {option.label}
+                                                </div>
+                                                {option.description ? (
+                                                    <div className="text-xs text-[var(--app-hint)]">
+                                                        {option.description}
+                                                    </div>
+                                                ) : null}
+                                            </div>
                                         </button>
                                         )
                                     })
                                 )}
+                                {showCustomModelEntry ? (
+                                    isEnteringCustomModel ? (
+                                        <form
+                                            className="px-3 pt-1 pb-2"
+                                            onSubmit={(e) => {
+                                                e.preventDefault()
+                                                submitCustomModel()
+                                            }}
+                                        >
+                                            <input
+                                                type="text"
+                                                autoFocus
+                                                spellCheck={false}
+                                                autoCapitalize="none"
+                                                autoCorrect="off"
+                                                value={customModelDraft}
+                                                placeholder={t('composer.model.customPlaceholder')}
+                                                disabled={controlsDisabled}
+                                                onChange={(e) => setCustomModelDraft(e.target.value)}
+                                                onMouseDown={(e) => e.stopPropagation()}
+                                                onKeyDown={(e) => {
+                                                    e.stopPropagation()
+                                                    if (e.key === 'Escape') {
+                                                        setIsEnteringCustomModel(false)
+                                                    }
+                                                }}
+                                                className="w-full rounded-lg border border-[var(--app-divider)] bg-[var(--app-bg)] px-2 py-1.5 text-sm text-[var(--app-text)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
+                                            />
+                                        </form>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            disabled={controlsDisabled}
+                                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                                                controlsDisabled
+                                                    ? 'cursor-not-allowed opacity-50'
+                                                    : 'cursor-pointer hover:bg-[var(--app-secondary-bg)]'
+                                            }`}
+                                            onClick={() => {
+                                                setCustomModelDraft(model ?? '')
+                                                setIsEnteringCustomModel(true)
+                                            }}
+                                            onMouseDown={(e) => e.preventDefault()}
+                                        >
+                                            <div className="flex h-4 w-4 items-center justify-center rounded-full border-2 border-[var(--app-hint)]" />
+                                            <span>{t('composer.model.custom')}</span>
+                                        </button>
+                                    )
+                                ) : null}
                             </div>
                         ) : null}
 

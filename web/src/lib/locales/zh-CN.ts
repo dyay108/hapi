@@ -258,6 +258,9 @@ export default {
   'newSession.model.optional': '可选',
   'newSession.model.loadFailed': '加载模型失败',
   'newSession.model.selectVariant': '选择变体',
+  'newSession.model.custom': '自定义模型…',
+  'newSession.model.customPlaceholder': '例如 claude-opus-5-20260514',
+  'newSession.model.customHint': '任何你的 Claude Code 支持的模型 ID。',
   'newSession.model.cursorUnavailable': '暂无 Cursor 模型列表。请先运行一次 Cursor 会话，或使用默认模型。',
   'newSession.opencodeModel.loading': '正在发现 OpenCode 模型…',
   'newSession.opencodeModel.loadFailed': '加载 OpenCode 模型失败',
@@ -492,6 +495,8 @@ export default {
   'toolGroup.codex.searchIn': '在 {path} 中搜索 {query}',
 
   // Composer buttons
+  'composer.model.custom': '自定义模型…',
+  'composer.model.customPlaceholder': '输入模型 ID，按回车',
   'composer.settings': '设置',
   'composer.terminal': '终端',
   'composer.abort': '中止',

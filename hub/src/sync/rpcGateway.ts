@@ -6,6 +6,8 @@ import {
     ListCodexSessionsRpcResponseSchema
 } from '@hapi/protocol/apiTypes'
 import type {
+    ClaudeModelSummary,
+    ClaudeModelsResponse,
     CodexModelSummary,
     CodexModelsResponse,
     CommandResponse,
@@ -65,6 +67,8 @@ export type RpcDirectoryEntry = DirectoryEntry
 export type RpcListDirectoryResponse = ListDirectoryResponse
 export type RpcStatFilesResponse = StatFilesResponse
 export type RpcPathExistsResponse = PathExistsResponse
+export type RpcClaudeModel = ClaudeModelSummary
+export type RpcListClaudeModelsResponse = ClaudeModelsResponse
 export type RpcCodexModel = CodexModelSummary
 export type RpcListCodexModelsResponse = CodexModelsResponse
 export type RpcListCodexSessionsResponse = ListCodexSessionsRpcResponse
@@ -292,6 +296,14 @@ export class RpcGateway {
             skills?: Array<{ name: string; description?: string }>
             error?: string
         }
+    }
+
+    async listClaudeModelsForSession(sessionId: string): Promise<RpcListClaudeModelsResponse> {
+        return await this.sessionRpc(sessionId, RPC_METHODS.ListClaudeModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListClaudeModelsResponse
+    }
+
+    async listClaudeModelsForMachine(machineId: string): Promise<RpcListClaudeModelsResponse> {
+        return await this.machineRpc(machineId, RPC_METHODS.ListClaudeModels, {}, MODEL_LIST_RPC_TIMEOUT_MS) as RpcListClaudeModelsResponse
     }
 
     async listCodexModelsForSession(sessionId: string): Promise<RpcListCodexModelsResponse> {

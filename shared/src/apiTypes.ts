@@ -428,6 +428,28 @@ export type PathExistsResponse = {
 
 export type MachinePathsExistsResponse = PathExistsResponse
 
+export type ClaudeModelSummary = {
+    /** Value accepted by Claude Code as `--model` (for example `sonnet` or `claude-opus-5[1m]`). */
+    value: string
+    displayName: string
+    description?: string
+    /** Canonical model id this alias currently resolves to. */
+    resolvedModel?: string
+    supportsEffort?: boolean
+    supportedEffortLevels?: string[]
+    supportsAdaptiveThinking?: boolean
+    supportsFastMode?: boolean
+    supportsAutoMode?: boolean
+}
+
+export type ClaudeModelsResponse = {
+    success: boolean
+    models?: ClaudeModelSummary[]
+    error?: string
+}
+
+export type ListClaudeModelsResponse = ClaudeModelsResponse
+
 export type CodexModelSummary = {
     id: string
     displayName: string
