@@ -31,6 +31,34 @@ describe('ModelSelector', () => {
         expect(onModelChange).toHaveBeenCalledWith('opus')
     })
 
+    it('shows each option description in the dropdown, not just the selected one', () => {
+        // The description has to be visible while choosing — a native <option>
+        // renders plain text only, so it is folded into the label.
+        const { container } = render(
+            <ModelSelector
+                agent="claude"
+                model="auto"
+                options={[
+                    { value: 'auto', label: 'Default', description: 'Sonnet 5 · Efficient for routine tasks' },
+                    { value: 'opus', label: 'Opus', description: 'Opus 5 · Best for everyday, complex tasks' },
+                    { value: 'sonnet[1m]', label: 'Sonnet 1M' }
+                ]}
+                isDisabled={false}
+                onModelChange={vi.fn()}
+            />
+        )
+        const select = container.querySelector('select') as HTMLSelectElement
+
+        expect(Array.from(select.options).map((option) => option.text)).toEqual([
+            'Default — Sonnet 5 · Efficient for routine tasks',
+            'Opus — Opus 5 · Best for everyday, complex tasks',
+            'Sonnet 1M'
+        ])
+        // Values stay clean — only the visible text carries the description.
+        expect(Array.from(select.options).map((option) => option.value))
+            .toEqual(['auto', 'opus', 'sonnet[1m]'])
+    })
+
     it('describes the selected model', () => {
         const { container } = render(
             <ModelSelector
@@ -46,9 +74,10 @@ describe('ModelSelector', () => {
             />
         )
 
-        expect(container.textContent).toContain('Opus 5 · Best for everyday, complex tasks')
-        // Only the selected model's description is shown, not every option's.
-        expect(container.textContent).not.toContain('Efficient for routine tasks')
+        // The hint under the select always describes the current selection,
+        // in full, regardless of how the native picker truncates option text.
+        expect(container.querySelector('[data-testid="model-description"]')?.textContent)
+            .toBe('Opus 5 · Best for everyday, complex tasks')
     })
 
     it('shows no description for a model that has none', () => {

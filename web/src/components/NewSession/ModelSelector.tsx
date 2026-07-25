@@ -56,8 +56,11 @@ export function ModelSelector(props: {
                 className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--app-divider)] bg-[var(--app-bg)] text-[var(--app-text)] focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
             >
                 {options.map((option) => (
+                    // A native <option> is plain text, so the description is
+                    // folded into the label — otherwise it is invisible at the
+                    // moment the user is actually choosing.
                     <option key={option.value} value={option.value}>
-                        {option.label}
+                        {option.description ? `${option.label} — ${option.description}` : option.label}
                     </option>
                 ))}
                 {props.allowCustomModel ? (
@@ -65,7 +68,9 @@ export function ModelSelector(props: {
                 ) : null}
             </select>
             {selectedDescription ? (
-                <div className="text-xs text-[var(--app-hint)]">{selectedDescription}</div>
+                <div className="text-xs text-[var(--app-hint)]" data-testid="model-description">
+                    {selectedDescription}
+                </div>
             ) : null}
             {showCustomInput ? (
                 <>

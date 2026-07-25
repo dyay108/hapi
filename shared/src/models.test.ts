@@ -5,6 +5,7 @@ import {
     DEFAULT_GEMINI_MODEL,
     GEMINI_MODEL_LABELS,
     GEMINI_MODEL_PRESETS,
+    getClaudeDefaultModelDescription,
     getClaudeModelLabel,
     isClaudeModelPreset,
     isDefaultClaudeModelValue,
@@ -56,6 +57,25 @@ describe('isDefaultClaudeModelValue', () => {
         expect(isDefaultClaudeModelValue('  ')).toBe(true)
         expect(isDefaultClaudeModelValue(null)).toBe(true)
         expect(isDefaultClaudeModelValue('sonnet')).toBe(false)
+    })
+})
+
+describe('getClaudeDefaultModelDescription', () => {
+    test('returns the blurb for the catalog default entry', () => {
+        expect(getClaudeDefaultModelDescription([
+            { value: 'default', displayName: 'Default (recommended)', description: 'Sonnet 5 · Efficient' },
+            { value: 'opus', displayName: 'Opus', description: 'Opus 5 · Capable' }
+        ])).toBe('Sonnet 5 · Efficient')
+    })
+
+    test('returns null when there is no default entry or no catalog', () => {
+        expect(getClaudeDefaultModelDescription([{ value: 'opus', displayName: 'Opus' }])).toBeNull()
+        expect(getClaudeDefaultModelDescription([])).toBeNull()
+        expect(getClaudeDefaultModelDescription()).toBeNull()
+    })
+
+    test('returns null when the default entry carries no description', () => {
+        expect(getClaudeDefaultModelDescription([{ value: 'default', displayName: 'Default' }])).toBeNull()
     })
 })
 

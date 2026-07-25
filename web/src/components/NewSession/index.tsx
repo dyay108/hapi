@@ -2,7 +2,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, ty
 import type { ApiClient } from '@/api/client'
 import type { CodexLocalSessionSummary, Machine } from '@/types/api'
 import type { GrokPermissionMode } from '@hapi/protocol'
-import { mergeClaudeModelOptions } from '@hapi/protocol'
+import { getClaudeDefaultModelDescription, mergeClaudeModelOptions } from '@hapi/protocol'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useMachinePathsExists } from '@/hooks/useMachinePathsExists'
 import { useSpawnSession } from '@/hooks/mutations/useSpawnSession'
@@ -276,7 +276,15 @@ export function NewSession(props: {
     // Models discovered on the selected machine, unioned with the static presets
     // so an unreachable machine or a failed probe never shrinks the list.
     const claudeModelOptions = useMemo(() => ([
-        { value: 'auto', label: 'Default' },
+        {
+            value: 'auto',
+            label: 'Default',
+            // Says what Default actually resolves to, e.g. "Sonnet 5 · Efficient
+            // for routine tasks" — otherwise the initial selection is unexplained.
+            ...(getClaudeDefaultModelDescription(claudeModelsState.models)
+                ? { description: getClaudeDefaultModelDescription(claudeModelsState.models)! }
+                : {})
+        },
         ...mergeClaudeModelOptions(claudeModelsState.models, model).map((option) => ({
             value: option.value,
             label: option.label,

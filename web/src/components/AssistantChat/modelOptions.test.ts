@@ -74,6 +74,25 @@ describe('getModelOptionsForFlavor', () => {
         expect(options.length).toBeGreaterThan(getModelOptionsForFlavor('claude').length)
     })
 
+    it('labels the Default option with what Default resolves to', () => {
+        const options = getModelOptionsForFlavor('claude', null, [
+            { value: 'default', label: 'Default (recommended)', description: 'Sonnet 5 · Efficient for routine tasks' },
+            { value: 'opus', label: 'Opus', description: 'Opus 5 · Capable' }
+        ])
+
+        expect(options[0]).toEqual({
+            value: null,
+            label: 'Default',
+            description: 'Sonnet 5 · Efficient for routine tasks'
+        })
+        // The catalog's own default entry is still not offered as a model.
+        expect(options.some((o) => o.value === 'default')).toBe(false)
+    })
+
+    it('leaves Default undescribed when the catalog says nothing about it', () => {
+        expect(getModelOptionsForFlavor('claude')[0]).toEqual({ value: null, label: 'Default' })
+    })
+
     it('prefers the discovered display name over the preset label', () => {
         const options = getModelOptionsForFlavor('claude', null, [
             { value: 'opus', label: 'Opus 5.1' }

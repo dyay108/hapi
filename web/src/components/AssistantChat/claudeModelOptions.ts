@@ -1,4 +1,8 @@
-import { mergeClaudeModelOptions, type ClaudeCatalogModel } from '@hapi/protocol'
+import {
+    getClaudeDefaultModelDescription,
+    mergeClaudeModelOptions,
+    type ClaudeCatalogModel
+} from '@hapi/protocol'
 
 export type ClaudeComposerModelOption = {
     value: string | null
@@ -29,9 +33,14 @@ export function getClaudeComposerModelOptions(
     catalog?: readonly ClaudeCatalogModel[] | null
 ): ClaudeComposerModelOption[] {
     const normalizedCurrentModel = normalizeClaudeComposerModel(currentModel)
+    const defaultDescription = getClaudeDefaultModelDescription(catalog)
 
     return [
-        { value: null, label: 'Default' },
+        {
+            value: null,
+            label: 'Default',
+            ...(defaultDescription ? { description: defaultDescription } : {})
+        },
         ...mergeClaudeModelOptions(catalog, normalizedCurrentModel).map((option) => ({
             value: option.value,
             label: option.label,

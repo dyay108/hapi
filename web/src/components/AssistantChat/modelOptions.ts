@@ -52,7 +52,10 @@ function withCurrentModelOption(options: ModelOption[], currentModel?: string | 
 function getClaudeModelOptions(currentModel?: string | null, customOptions?: ModelOption[]): ModelOption[] {
     const catalog: ClaudeCatalogModel[] = []
     for (const option of customOptions ?? []) {
-        const value = normalizeCurrentModel(option.value)
+        // Keep `default`/`auto` entries here rather than filtering them out:
+        // mergeClaudeModelOptions drops them from the list anyway, but their
+        // description is what labels the composer's own Default option.
+        const value = option.value?.trim()
         if (!value) {
             continue
         }

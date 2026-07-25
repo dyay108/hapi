@@ -75,6 +75,26 @@ export function isDefaultClaudeModelValue(value: string | null | undefined): boo
 }
 
 /**
+ * Description of the catalog's "default" entry (e.g. "Sonnet 5 · Efficient for
+ * routine tasks").
+ *
+ * `mergeClaudeModelOptions` drops that entry because each picker renders its
+ * own Default option, but the blurb is still the only hint about what Default
+ * actually resolves to — so callers can attach it to their own option.
+ */
+export function getClaudeDefaultModelDescription(
+    catalog?: readonly ClaudeCatalogModel[] | null
+): string | null {
+    for (const entry of catalog ?? []) {
+        if (isDefaultClaudeModelValue(entry.value)) {
+            return entry.description?.trim() || null
+        }
+    }
+
+    return null
+}
+
+/**
  * Build the selectable Claude model list as a union of every source we know
  * about, so the picker can only ever grow:
  *
