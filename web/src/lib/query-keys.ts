@@ -17,7 +17,6 @@ export const queryKeys = {
     ] as const,
     slashCommands: (sessionId: string) => ['slash-commands', sessionId] as const,
     sessionClaudeModels: (sessionId: string) => ['session-claude-models', sessionId] as const,
-    sessionCodexModels: (sessionId: string) => ['session-codex-models', sessionId] as const,
     sessionCursorModels: (sessionId: string) => ['session-cursor-models', sessionId] as const,
     sessionCursorChatStore: (sessionId: string) => ['session-cursor-chat-store', sessionId] as const,
     sessionPiModels: (sessionId: string) => ['session-pi-models', sessionId] as const,
@@ -29,4 +28,5 @@ export const queryKeys = {
     sessionGrokModels: (sessionId: string) => ['session-grok-models', sessionId] as const,
     sessionGrokReasoningEffortOptions: (sessionId: string) => ['session-grok-reasoning-effort-options', sessionId] as const,
     skills: (sessionId: string) => ['skills', sessionId] as const,
+    scratchlist: (sessionId: string) => ['scratchlist', sessionId] as const,
 }
