@@ -16,6 +16,10 @@ COPY shared/package.json shared/package.json
 COPY web/package.json web/package.json
 COPY website/package.json website/package.json
 
+# patchedDependencies resolves these at install time, so they must land before
+# the install rather than with the rest of the source below.
+COPY patches patches
+
 RUN --mount=type=cache,target=/root/.bun/install/cache \
     bun install --frozen-lockfile
 
