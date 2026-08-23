@@ -13,13 +13,16 @@ export function resolveAgentSessionIdFromMetadata(
     }
     const flavor = isKnownFlavor(metadata.flavor) ? metadata.flavor : 'claude'
     switch (flavor) {
+        case 'agy': return metadata.agySessionId ?? undefined
         case 'codex': return metadata.codexSessionId ?? undefined
         case 'gemini': return metadata.geminiSessionId ?? undefined
         case 'opencode': return metadata.opencodeSessionId ?? undefined
         case 'grok': return metadata.grokSessionId ?? undefined
         case 'cursor': return metadata.cursorSessionId ?? undefined
         case 'kimi': return metadata.kimiSessionId ?? undefined
+        case 'copilot': return metadata.copilotSessionId ?? undefined
         case 'pi': return metadata.piSessionId ?? undefined
+        case 'dsh': return undefined
         default: return metadata.claudeSessionId ?? undefined
     }
 }
@@ -30,6 +33,10 @@ export function resolveAgentSessionIdFromMetadata(
  * Claude and Codex with messages but no flavor-specific id may attempt the
  * hub-authoritative stored-message recovery path; the hub still rejects logs
  * without a safe resume id.
+ *
+ * Cursor: definitive `onDisk: false` still blocks. Probe failure / unknown
+ * (`undefined`) must NOT be treated as missing data — allow reopen and show
+ * honest messaging (#1084).
  */
 export function inactiveSessionCanResume(
     session: Session,
@@ -45,7 +52,7 @@ export function inactiveSessionCanResume(
     if (resolveAgentSessionIdFromMetadata(session.metadata)) {
         const flavor = isKnownFlavor(session.metadata.flavor) ? session.metadata.flavor : 'claude'
         if (flavor === 'cursor') {
-            return cursorChatOnDisk === true
+            return cursorChatOnDisk !== false
         }
         return true
     }
@@ -54,4 +61,35 @@ export function inactiveSessionCanResume(
         return true
     }
     return userMessageCount === 0
+}
+
+export type CursorReopenGateReason = 'missing' | 'checking'
+
+/**
+ * UI gate for Cursor reopen. Only definitive `onDisk: false` disables reopen.
+ * Probe errors / unknown status allow the attempt (soft-fail) with optional
+ * unverified messaging.
+ */
+export function resolveCursorReopenGate(args: {
+    applicable: boolean
+    onDisk: boolean | undefined
+    error: string | null
+    isLoading: boolean
+}): { disabledReason: CursorReopenGateReason | null; probeUnverified: boolean } {
+    if (!args.applicable) {
+        return { disabledReason: null, probeUnverified: false }
+    }
+    if (args.onDisk === false) {
+        return { disabledReason: 'missing', probeUnverified: false }
+    }
+    if (args.onDisk === true) {
+        return { disabledReason: null, probeUnverified: false }
+    }
+    if (args.error) {
+        return { disabledReason: null, probeUnverified: true }
+    }
+    if (args.isLoading) {
+        return { disabledReason: 'checking', probeUnverified: false }
+    }
+    return { disabledReason: 'checking', probeUnverified: false }
 }

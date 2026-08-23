@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { SelectControl } from '@/components/ui/select-control'
 import {
     DEFAULT_VOICE_CHARACTER,
     DEFAULT_VOICE_IDENTITY,
@@ -129,14 +130,14 @@ export function VoicePersonaControls(props: {
                         onChange={(e) => setIdentity(e.target.value === DEFAULT_VOICE_IDENTITY ? '' : e.target.value)}
                         rows={6} maxLength={VOICE_IDENTITY_MAX_LENGTH} spellCheck={false}
                         className="w-full resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-2 py-2 font-mono text-xs leading-relaxed text-[var(--app-fg)]" />
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                        <span className="text-xs text-[var(--app-hint)]">
+                            {prefs.identity.trim() ? props.t('settings.voice.identity.customized') : props.t('settings.voice.identity.default')}
+                        </span>
                         <button type="button" onClick={resetIdentity}
                             className="rounded-md border border-[var(--app-border)] px-2 py-1 text-xs text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)]">
                             {props.t('settings.voice.identity.reset')}
                         </button>
-                        <span className="text-xs text-[var(--app-hint)]">
-                            {prefs.identity.trim() ? props.t('settings.voice.identity.customized') : props.t('settings.voice.identity.default')}
-                        </span>
                     </div>
                 </div>
             )}
@@ -155,7 +156,7 @@ export function VoicePersonaControls(props: {
                         onChange={(e) => setCharacter(e.target.value === DEFAULT_VOICE_CHARACTER ? '' : e.target.value)}
                         rows={8} maxLength={VOICE_CHARACTER_MAX_LENGTH} spellCheck={false}
                         className="w-full resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-2 py-2 font-mono text-xs leading-relaxed text-[var(--app-fg)]" />
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center justify-end gap-2">
                         <button type="button" onClick={resetCharacter}
                             className="rounded-md border border-[var(--app-border)] px-2 py-1 text-xs text-[var(--app-fg)] hover:bg-[var(--app-subtle-bg)]">
                             {props.t('settings.voice.character.reset')}
@@ -189,21 +190,21 @@ export function VoicePersonaControls(props: {
                 <ChevronDownIcon className={`shrink-0 transition-transform ${deliveryOpen ? 'rotate-180' : ''}`} />
             </button>
             {deliveryOpen && (
-                <div className="space-y-1 border-t border-[var(--app-divider)] bg-[var(--app-subtle-bg)]/40 pb-2">
-                    <p className="px-3 pt-2 text-xs text-[var(--app-hint)]">
+                <div className="space-y-2 border-t border-[var(--app-divider)] bg-[var(--app-subtle-bg)]/40 px-3 py-3">
+                    <p className="text-xs text-[var(--app-hint)]">
                         {props.t('settings.voice.character.presetSlidersHint')}
                     </p>
-                    <label className="block px-3 pt-1">
+                    <label className="block">
                         <span className="mb-1 block text-sm text-[var(--app-fg)]">
                             {props.t('settings.voice.character.preset.label')}
                         </span>
-                        <select value={prefs.preset}
+                        <SelectControl value={prefs.preset}
                             onChange={(e) => setPreset(e.target.value as VoicePersonalityPresetId)}
-                            className="w-full rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-2 py-2 text-sm text-[var(--app-fg)]">
+                            className="rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] py-2 pl-2 text-sm text-[var(--app-fg)]">
                             {VOICE_PERSONALITY_PRESETS.map((preset) => (
                                 <option key={preset.id} value={preset.id}>{props.t(preset.labelKey)}</option>
                             ))}
-                        </select>
+                        </SelectControl>
                         <p className="mt-1 text-xs text-[var(--app-hint)]">
                             {props.t(getVoicePersonalityPreset(prefs.preset).descriptionKey)}
                         </p>
@@ -306,7 +307,7 @@ export function VoiceDiagnosticsControls(props: {
 
     const backend = props.voiceBackend ?? 'elevenlabs'
     const wireHint = getVoiceWireBudgetHint(backend)
-    const fixturesPreview = useMemo(() => getVoicePlatformFixturesPreview(800), [])
+    const fixturesPreview = useMemo(() => getVoicePlatformFixturesPreview(), [])
     const composed = useMemo(
         () => resolveComposedVoiceSystemPrompt(prefs, { backend }),
         [prefs, backend]

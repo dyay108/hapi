@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useAuthSource } from '@/hooks/useAuthSource'
 import { useServerUrl } from '@/hooks/useServerUrl'
 import { useSSE } from '@/hooks/useSSE'
+import { useReconnectingState } from '@/hooks/useReconnectingState'
 import { useSyncingState } from '@/hooks/useSyncingState'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import { useViewportHeight } from '@/hooks/useViewportHeight'
@@ -29,6 +30,7 @@ import { PwaUpdateBanner, PwaUpdateBannerWithStatusOffset } from '@/components/P
 import { SyncingBanner } from '@/components/SyncingBanner'
 import { ReconnectingBanner } from '@/components/ReconnectingBanner'
 import { VoiceErrorBanner } from '@/components/VoiceErrorBanner'
+import { RunnerVersionSkewBanner } from '@/components/RunnerVersionSkewBanner'
 import { LoadingState } from '@/components/LoadingState'
 import { ToastContainer } from '@/components/ToastContainer'
 import { PwaUpdateProvider } from '@/lib/pwa-update-context'
@@ -63,11 +65,32 @@ function AppInner() {
     const { serverUrl, baseUrl, setServerUrl, clearServerUrl } = useServerUrl()
     const { authSource, isLoading: isAuthSourceLoading, setAccessToken } = useAuthSource(baseUrl)
     const { token, api, isLoading: isAuthLoading, error: authError, needsBinding, bind } = useAuth(authSource, baseUrl)
+    const [titleSuggestionAvailable, setTitleSuggestionAvailable] = useState(false)
     const goBack = useAppGoBack()
     const pathname = useLocation({ select: (location) => location.pathname })
     const matchRoute = useMatchRoute()
     const router = useRouter()
     const { addToast } = useToast()
+
+    useEffect(() => {
+        let cancelled = false
+        setTitleSuggestionAvailable(false)
+        if (!api) return () => { cancelled = true }
+
+        void api.getHealth()
+            .then((health) => {
+                if (!cancelled) {
+                    setTitleSuggestionAvailable(health.capabilities?.titleSuggestion === true)
+                }
+            })
+            .catch(() => {
+                if (!cancelled) setTitleSuggestionAvailable(false)
+            })
+
+        return () => {
+            cancelled = true
+        }
+    }, [api])
 
     useEffect(() => {
         const tg = getTelegramWebApp()
@@ -139,8 +162,12 @@ function AppInner() {
     const sessionMatch = matchRoute({ to: '/sessions/$sessionId' })
     const selectedSessionId = sessionMatch && sessionMatch.sessionId !== 'new' ? sessionMatch.sessionId : null
     const { isSyncing, startSync, endSync } = useSyncingState()
-    const [sseDisconnected, setSseDisconnected] = useState(false)
-    const [sseDisconnectReason, setSseDisconnectReason] = useState<string | null>(null)
+    const {
+        isReconnecting: sseDisconnected,
+        reason: sseDisconnectReason,
+        reportConnect: reportSseConnect,
+        reportDisconnect: reportSseDisconnect
+    } = useReconnectingState()
     const syncTokenRef = useRef(0)
     const isFirstConnectRef = useRef(true)
     const baseUrlRef = useRef(baseUrl)
@@ -202,10 +229,17 @@ function AppInner() {
         void run()
     }, [api, isPushSupported, pushPermission, requestPermission, subscribe, token])
 
-    const handleSseConnect = useCallback(() => {
+    const handleSseConnect = useCallback((info: { resumed: boolean }) => {
         // Clear disconnected state on successful connection
-        setSseDisconnected(false)
-        setSseDisconnectReason(null)
+        reportSseConnect()
+
+        // The hub replayed every event missed during the gap, so the caches
+        // are already consistent - the full refetch below would only re-download
+        // what the replay just delivered. First connects and long gaps arrive
+        // with resumed=false and take the resync path.
+        if (info.resumed && !isFirstConnectRef.current) {
+            return
+        }
 
         // Increment token to track this specific connection
         const token = ++syncTokenRef.current
@@ -241,15 +275,14 @@ function AppInner() {
                     endSync()
                 }
             })
-    }, [api, queryClient, selectedSessionId, startSync, endSync])
+    }, [api, queryClient, selectedSessionId, startSync, endSync, reportSseConnect])
 
     const handleSseDisconnect = useCallback((reason: string) => {
         // Only show reconnecting banner if we've already connected once
         if (!isFirstConnectRef.current) {
-            setSseDisconnected(true)
-            setSseDisconnectReason(reason)
+            reportSseDisconnect(reason)
         }
-    }, [])
+    }, [reportSseDisconnect])
 
     const handleSseEvent = useCallback((event: SyncEvent) => {
         if (event.type !== 'messages-invalidated') {
@@ -262,8 +295,13 @@ function AppInner() {
         void syncTailMessages(api, event.sessionId)
     }, [api, selectedSessionId])
 
-    const handleSessionSseConnect = useCallback(() => {
+    const handleSessionSseConnect = useCallback((info: { resumed: boolean }) => {
         if (!api || !selectedSessionId) {
+            return
+        }
+        // A resumed connection replayed messages-consumed/message events for
+        // this session, so the queued-state snapshot cannot have drifted.
+        if (info.resumed) {
             return
         }
         void reconcileQueuedStateAfterConnect(api, selectedSessionId).catch((error) => {
@@ -446,7 +484,7 @@ function AppInner() {
     }
 
     return (
-        <AppContextProvider value={{ api, token, baseUrl }}>
+        <AppContextProvider value={{ api, token, baseUrl, titleSuggestionAvailable }}>
             <VoiceProvider>
                 <PwaUpdateBannerWithStatusOffset
                     isSyncing={isSyncing}
@@ -462,6 +500,7 @@ function AppInner() {
                     isHubConnected={globalSubscriptionId !== null}
                     isReconnecting={showReconnectingBanner}
                 />
+                <RunnerVersionSkewBanner />
                 <div className="h-full min-h-0 flex flex-col">
                     <Outlet />
                 </div>

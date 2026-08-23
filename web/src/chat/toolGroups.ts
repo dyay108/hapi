@@ -1,4 +1,4 @@
-import type { ChatBlock, ToolCallBlock } from '@/chat/types'
+import type { ChatBlock, RoundSummary, ToolCallBlock } from '@/chat/types'
 import { getCodexCommandActions, isCodexExplorationTool } from '@/chat/codexCommandPresentation'
 import { isSubagentToolName } from '@/chat/subagentTool'
 import { isAskUserQuestionToolName } from '@/components/ToolCard/askUserQuestion'
@@ -33,14 +33,30 @@ export type ToolGroupBlock = {
     needsOlderHistory: boolean
     activityTitle?: string | null
     presentationMode?: 'default' | 'codex-exploration'
+    roundSummary?: RoundSummary
     summary: ToolGroupSummary
 }
 
 export type VisibleChatBlock = ChatBlock | ToolGroupBlock
 
+export type VisibleChatBlockRole = 'user' | 'assistant' | 'system'
+
+/**
+ * The role a block renders under in the thread. `@assistant-ui/react` joins
+ * adjacent assistant-role blocks into a single card, so this also determines
+ * how many rows a run of blocks actually produces on screen.
+ */
+export function visibleBlockRole(block: VisibleChatBlock): VisibleChatBlockRole {
+    if (block.kind === 'user-text') return 'user'
+    if (block.kind === 'agent-event') return 'system'
+    if (block.kind === 'cli-output') return block.source === 'user' ? 'user' : 'assistant'
+    return 'assistant'
+}
+
 type ToolGroupingOptions = {
     hasMoreMessages: boolean
     previousGroups?: ToolGroupBlock[]
+    codexExplorationCollapsed?: boolean
 }
 
 const PLAN_TOOL_NAMES = new Set([
@@ -58,6 +74,9 @@ const MILESTONE_TOOL_NAMES = new Set([
     'TeamCreate',
     'TeamDelete',
     'SendMessage',
+    // agy's transitional task-log chip — keep it standalone (like SendMessage)
+    // so it reads as a thin marker instead of being folded into a tool group.
+    'AgyTaskLog',
     'Skill',
     'spawn_agent',
     'send_input',
@@ -291,11 +310,12 @@ export function buildVisibleChatBlocks(
             firstToolId: tools[0].id,
             lastToolId: tools[tools.length - 1].id,
             tools,
-            defaultOpen: groupingFamily === 'codex-exploration',
+            defaultOpen: groupingFamily === 'codex-exploration' && options.codexExplorationCollapsed === false,
             historyState: needsOlderHistory ? 'needs-older-history' : 'complete',
             needsOlderHistory,
             activityTitle,
             presentationMode: groupingFamily,
+            roundSummary: tools[0].roundSummary,
             summary: summarizeToolGroup(tools)
         })
         index = cursor - 1

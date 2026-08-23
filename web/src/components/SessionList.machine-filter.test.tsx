@@ -7,6 +7,9 @@ import { I18nProvider } from '@/lib/i18n-context'
 import { ToastProvider } from '@/lib/toast-context'
 import { SessionList } from './SessionList'
 
+const SEARCH_LABEL = 'Search sessions (title, path, Agent, machine name, ID, and more)'
+const SEARCH_PLACEHOLDER = 'Search title/path/Agent/machine/ID…'
+
 afterEach(() => cleanup())
 
 function makeSession(overrides: Partial<SessionSummary> & { id: string }): SessionSummary {
@@ -16,6 +19,9 @@ function makeSession(overrides: Partial<SessionSummary> & { id: string }): Sessi
         activeAt: 0,
         updatedAt: 0,
         metadata: null,
+        metadataVersion: 0,
+        agentStateVersion: 0,
+        todosUpdatedAt: 0,
         todoProgress: null,
         pendingRequestsCount: 0,
         pendingRequestKinds: [],
@@ -92,6 +98,7 @@ describe('SessionList machine filter', () => {
         ])
 
         expect(screen.queryByRole('group', { name: 'Filter sessions by machine' })).toBeNull()
+        expect(screen.queryByRole('button', { name: 'Filter sessions by machine' })).toBeNull()
         expect(screen.getByTitle('/work/hapi')).toBeTruthy()
     })
 
@@ -99,6 +106,8 @@ describe('SessionList machine filter', () => {
         renderSessionList(multiMachineSessions)
 
         expect(screen.getByRole('group', { name: 'Filter sessions by machine' })).toBeTruthy()
+        // Mobile (below md) counterpart: a compact filter icon button in the header
+        expect(screen.getByRole('button', { name: 'Filter sessions by machine' })).toBeTruthy()
         expect(screen.getByRole('button', { name: /All \(2\)/ })).toBeTruthy()
         expect(screen.getByText('work/hapi · Mint')).toBeTruthy()
         expect(screen.getByText('work/docs · Teemo')).toBeTruthy()
@@ -139,7 +148,8 @@ describe('SessionList machine filter', () => {
             })
         ])
 
-        fireEvent.change(screen.getByPlaceholderText('Search sessions…'), { target: { value: 'alpha' } })
+        fireEvent.click(screen.getByRole('button', { name: SEARCH_LABEL }))
+        fireEvent.change(screen.getByPlaceholderText(SEARCH_PLACEHOLDER), { target: { value: 'alpha' } })
         fireEvent.click(screen.getByRole('button', { name: /Teemo \(1\)/ }))
 
         expect(screen.getByText('No sessions match your filters.')).toBeTruthy()

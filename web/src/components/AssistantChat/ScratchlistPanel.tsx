@@ -18,6 +18,9 @@ import {
     shouldConfirmDelete,
     type ScratchlistEntry,
 } from '@/lib/scratchlist'
+import type { ApiClient } from '@/api/client'
+import type { ScratchlistAttachmentMetadata } from '@hapi/protocol'
+import { isImageMimeType } from '@/lib/fileAttachments'
 import { safeCopyToClipboard } from '@/lib/clipboard'
 import { useTranslation } from '@/lib/use-translation'
 import { formatAbsoluteDateTime, formatRelativeTime } from '@/lib/relativeTime'
@@ -243,6 +246,64 @@ function useCopiedFeedback(clearAfterMs: number = COPIED_FEEDBACK_MS) {
  * entries + callbacks. Used by both the always-visible ScratchlistPanel
  * and the composer-controlled drawer below.
  */
+function ScratchlistAttachmentThumbnails(props: {
+    sessionId: string
+    api: ApiClient
+    attachments: ScratchlistAttachmentMetadata[]
+}) {
+    const [urls, setUrls] = useState<Array<{ id: string; url: string; filename: string }>>([])
+
+    useEffect(() => {
+        let cancelled = false
+        const created: string[] = []
+        void (async () => {
+            const next: Array<{ id: string; url: string; filename: string }> = []
+            for (const attachment of props.attachments) {
+                if (!isImageMimeType(attachment.mimeType)) continue
+                try {
+                    const blob = await props.api.fetchScratchlistAttachmentBlob(props.sessionId, attachment.id)
+                    const url = URL.createObjectURL(blob)
+                    created.push(url)
+                    next.push({ id: attachment.id, url, filename: attachment.filename })
+                } catch {
+                    // Non-fatal: entry still shows text/actions.
+                }
+            }
+            if (!cancelled) {
+                setUrls(next)
+            } else {
+                for (const url of created) URL.revokeObjectURL(url)
+            }
+        })()
+        return () => {
+            cancelled = true
+            setUrls((prev) => {
+                for (const item of prev) URL.revokeObjectURL(item.url)
+                return []
+            })
+        }
+    }, [props.api, props.sessionId, props.attachments])
+
+    if (urls.length === 0) return null
+
+    return (
+        <div
+            className="float-left mr-2 mb-1 flex max-w-[min(8rem,40%)] flex-col gap-1"
+            data-testid="scratchlist-attachment-thumbs"
+        >
+            {urls.map((item) => (
+                <img
+                    key={item.id}
+                    src={item.url}
+                    alt={item.filename}
+                    className="max-h-20 w-full rounded border border-[var(--app-border)] object-cover"
+                    data-testid="scratchlist-attachment-thumb"
+                />
+            ))}
+        </div>
+    )
+}
+
 function ScratchlistInventory({
     entries,
     busyEntryId,
@@ -250,13 +311,19 @@ function ScratchlistInventory({
     onPromoteToQueue,
     onDelete,
     onMove,
+    sessionId,
+    api,
+    disabled = false,
 }: {
     entries: ScratchlistEntry[]
     busyEntryId: string | null
-    onPromoteToComposer: (entry: ScratchlistEntry) => void
-    onPromoteToQueue: (entry: ScratchlistEntry) => void
+    onPromoteToComposer: (entry: ScratchlistEntry) => void | Promise<void>
+    onPromoteToQueue: (entry: ScratchlistEntry) => void | Promise<void>
     onDelete: (entry: ScratchlistEntry) => void
     onMove: (entry: ScratchlistEntry, direction: 'up' | 'down') => void
+    sessionId?: string
+    api?: ApiClient
+    disabled?: boolean
 }) {
     const { t } = useTranslation()
     const { copiedEntryId, signalCopied } = useCopiedFeedback()
@@ -286,23 +353,40 @@ function ScratchlistInventory({
                 const isFirst = index === 0
                 const isLast = index === entries.length - 1
                 const isBusy = busyEntryId === entry.id
+                const mutationsDisabled = disabled || isBusy
                 return (
                     <li
                         key={entry.id}
-                        className="flex items-start gap-2 rounded-md bg-[var(--app-bg)] px-2 py-1.5 shadow-sm"
+                        className="flex flex-col gap-1 rounded-md bg-[var(--app-bg)] px-2 py-1.5 shadow-sm"
                         data-testid="scratchlist-entry"
                     >
-                        <span className="flex-1 min-w-0 whitespace-pre-wrap break-words text-sm text-[var(--app-fg)] line-clamp-4">
-                            {entry.text}
-                        </span>
-                        <div className="flex shrink-0 items-center gap-0.5 text-[var(--app-hint)]">
+                        <div className="flex items-start gap-2">
+                            <div className="min-w-0 flex-1 overflow-hidden">
+                                {sessionId && api && entry.attachments && entry.attachments.length > 0 ? (
+                                    <ScratchlistAttachmentThumbnails
+                                        sessionId={sessionId}
+                                        api={api}
+                                        attachments={entry.attachments}
+                                    />
+                                ) : null}
+                                <p
+                                    className={
+                                        entry.attachments?.length
+                                            ? 'whitespace-pre-wrap break-words text-sm text-[var(--app-fg)]'
+                                            : 'line-clamp-4 whitespace-pre-wrap break-words text-sm text-[var(--app-fg)]'
+                                    }
+                                >
+                                    {entry.text || (entry.attachments?.length ? t('scratchlist.attachmentOnly') : '')}
+                                </p>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-0.5 text-[var(--app-hint)]">
                             <EntryAgeIndicator entry={entry} />
                             <button
                                 type="button"
                                 aria-label={t('scratchlist.action.moveUp')}
                                 title={t('scratchlist.action.moveUp')}
                                 onClick={() => onMove(entry, 'up')}
-                                disabled={isFirst || isBusy}
+                                disabled={isFirst || mutationsDisabled}
                                 className="flex h-6 w-6 items-center justify-center rounded hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)] disabled:cursor-not-allowed disabled:opacity-30"
                             >
                                 <ArrowUpIcon />
@@ -312,7 +396,7 @@ function ScratchlistInventory({
                                 aria-label={t('scratchlist.action.moveDown')}
                                 title={t('scratchlist.action.moveDown')}
                                 onClick={() => onMove(entry, 'down')}
-                                disabled={isLast || isBusy}
+                                disabled={isLast || mutationsDisabled}
                                 className="flex h-6 w-6 items-center justify-center rounded hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)] disabled:cursor-not-allowed disabled:opacity-30"
                             >
                                 <ArrowDownIcon />
@@ -322,7 +406,7 @@ function ScratchlistInventory({
                                 aria-label={t('scratchlist.action.promoteToComposer')}
                                 title={t('scratchlist.action.promoteToComposer')}
                                 onClick={() => onPromoteToComposer(entry)}
-                                disabled={isBusy}
+                                disabled={mutationsDisabled}
                                 className="flex h-6 w-6 items-center justify-center rounded hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)] disabled:cursor-not-allowed disabled:opacity-30"
                             >
                                 <PencilIcon />
@@ -332,7 +416,7 @@ function ScratchlistInventory({
                                 aria-label={t('scratchlist.action.promoteToQueue')}
                                 title={t('scratchlist.action.promoteToQueue')}
                                 onClick={() => onPromoteToQueue(entry)}
-                                disabled={isBusy}
+                                disabled={mutationsDisabled}
                                 className="flex h-6 w-6 items-center justify-center rounded hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)] disabled:cursor-not-allowed disabled:opacity-30"
                             >
                                 <SendIcon />
@@ -361,11 +445,12 @@ function ScratchlistInventory({
                                 aria-label={t('scratchlist.action.delete')}
                                 title={t('scratchlist.action.delete')}
                                 onClick={() => onDelete(entry)}
-                                disabled={isBusy}
+                                disabled={mutationsDisabled}
                                 className="flex h-6 w-6 items-center justify-center rounded hover:bg-[var(--app-subtle-bg)] hover:text-[var(--app-fg)] disabled:cursor-not-allowed disabled:opacity-30"
                             >
                                 <TrashIcon />
                             </button>
+                        </div>
                         </div>
                     </li>
                 )
@@ -387,12 +472,18 @@ export function ScratchlistDrawer({
     onDelete,
     onPromoteToComposer,
     onPromoteToQueue,
+    sessionId,
+    api,
+    disabled = false,
 }: {
     entries: ScratchlistEntry[]
     onMove: (id: string, direction: 'up' | 'down') => void
     onDelete: (id: string) => void
-    onPromoteToComposer: (text: string) => void
-    onPromoteToQueue: (text: string) => Promise<boolean>
+    onPromoteToComposer: (entry: ScratchlistEntry) => void | Promise<void>
+    onPromoteToQueue: (entry: ScratchlistEntry) => Promise<boolean>
+    sessionId: string
+    api: ApiClient
+    disabled?: boolean
 }) {
     const { t } = useTranslation()
     const [busyEntryId, setBusyEntryId] = useState<string | null>(null)
@@ -404,6 +495,7 @@ export function ScratchlistDrawer({
     }, [entries.length, t])
 
     const handleDelete = useCallback((entry: ScratchlistEntry) => {
+        if (disabled) return
         if (shouldConfirmDelete(entry)) {
             const confirmed = typeof window !== 'undefined'
                 ? window.confirm(t('scratchlist.confirmDelete'))
@@ -411,26 +503,28 @@ export function ScratchlistDrawer({
             if (!confirmed) return
         }
         onDelete(entry.id)
-    }, [onDelete, t])
+    }, [disabled, onDelete, t])
 
     const handleMove = useCallback((entry: ScratchlistEntry, direction: 'up' | 'down') => {
+        if (disabled) return
         onMove(entry.id, direction)
-    }, [onMove])
+    }, [disabled, onMove])
 
     const handlePromoteToComposer = useCallback((entry: ScratchlistEntry) => {
-        onPromoteToComposer(entry.text)
-    }, [onPromoteToComposer])
+        if (disabled) return
+        void onPromoteToComposer(entry)
+    }, [disabled, onPromoteToComposer])
 
     const handlePromoteToQueue = useCallback(async (entry: ScratchlistEntry) => {
-        if (busyEntryId) return
+        if (disabled || busyEntryId) return
         setBusyEntryId(entry.id)
         try {
-            const accepted = await onPromoteToQueue(entry.text)
+            const accepted = await onPromoteToQueue(entry)
             if (accepted) onDelete(entry.id)
         } finally {
             setBusyEntryId(null)
         }
-    }, [busyEntryId, onDelete, onPromoteToQueue])
+    }, [busyEntryId, disabled, onDelete, onPromoteToQueue])
 
     return (
         <div className="mx-auto w-full max-w-content mb-1">
@@ -461,6 +555,9 @@ export function ScratchlistDrawer({
                     <ScratchlistInventory
                         entries={entries}
                         busyEntryId={busyEntryId}
+                        sessionId={sessionId}
+                        api={api}
+                        disabled={disabled}
                         onPromoteToComposer={handlePromoteToComposer}
                         onPromoteToQueue={handlePromoteToQueue}
                         onDelete={handleDelete}

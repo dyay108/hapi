@@ -1,19 +1,24 @@
 import {
     CursorMigrateToAcpRequestSchema,
     DeleteUploadRequestSchema,
+    ForkConversationRequestSchema,
     getPermissionModesForFlavor,
     isPermissionModeAllowedForFlavor,
     RenameSessionRequestSchema,
+    SetSessionPinnedRequestSchema,
     ResumeSessionRequestSchema,
+    RewindConversationRequestSchema,
     SCRATCHLIST_MAX_ENTRIES,
     ScratchlistEntryCreateRequestSchema,
     ScratchlistEntryUpdateRequestSchema,
     SessionCollaborationModeRequestSchema,
+    SessionCopilotAgentModeRequestSchema,
     SessionEffortRequestSchema,
     SessionModelReasoningEffortRequestSchema,
     SessionServiceTierRequestSchema,
     SessionModelRequestSchema,
     SessionPermissionModeRequestSchema,
+    UpdateSessionSummaryRequestSchema,
     supportsModelChange,
     supportsEffort,
     toSessionSummary,
@@ -24,6 +29,9 @@ import type { SlashCommand } from '@hapi/protocol/apiTypes'
 import { Hono, type Context } from 'hono'
 import type { SyncEngine, Session } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
+import { loadScratchlistAttachmentLimitsFromEnv } from '../../config/scratchlistAttachmentLimits'
+import { validateScratchlistAttachmentsForWrite, scratchlistSessionBytesBeforeForPut } from '../../scratchlistAttachments/validate'
+import { TitleSuggestionError } from '../../sync/titleSuggestion'
 import { requireSessionFromParam, requireSyncEngine } from './guards'
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -71,9 +79,26 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         const getPendingCount = (s: Session) => s.agentState?.requests ? Object.keys(s.agentState.requests).length : 0
 
         const namespace = c.get('namespace')
-        const sessionRecords = engine.getSessionsByNamespace(namespace)
+        const limitRaw = c.req.query('limit')
+        const parsedLimit = limitRaw === undefined ? null : Number(limitRaw)
+        const limit = parsedLimit !== null && Number.isFinite(parsedLimit)
+            ? Math.min(500, Math.max(1, Math.floor(parsedLimit)))
+            : null
+        const order = c.req.query('order')
+
+        let sessionRecords = engine.getSessionsByNamespace(namespace)
             .sort((a, b) => {
-                // Active sessions first
+                // Peer discovery wants newest activity first before limit truncation.
+                if (order === 'updatedAt') {
+                    return b.updatedAt - a.updatedAt
+                }
+                if (Boolean(a.globalPinned) !== Boolean(b.globalPinned)) {
+                    return a.globalPinned ? -1 : 1
+                }
+                if (Boolean(a.pinned) !== Boolean(b.pinned)) {
+                    return a.pinned ? -1 : 1
+                }
+                // Active sessions first (web session list)
                 if (a.active !== b.active) {
                     return a.active ? -1 : 1
                 }
@@ -86,6 +111,9 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
                 // Then by updatedAt
                 return b.updatedAt - a.updatedAt
             })
+        if (limit !== null) {
+            sessionRecords = sessionRecords.slice(0, limit)
+        }
         const scheduledCounts = engine.getFutureScheduledMessageCounts(sessionRecords.map((session) => session.id))
         const nextScheduledAt = engine.getNextScheduledAtBySessionIds(sessionRecords.map((session) => session.id))
         const sessions = sessionRecords.map((session) => {
@@ -111,13 +139,24 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return sessionResult
         }
 
-        const result = engine.getSessionExport(sessionResult.sessionId, sessionResult.session)
+        const force = c.req.query('force') === 'true'
+        const result = engine.getSessionExport(
+            sessionResult.sessionId,
+            sessionResult.session,
+            { force }
+        )
         if (result.type === 'too-large') {
             return c.json({
-                error: 'Session export too large',
+                type: 'too-large',
+                error: 'Session export exceeds the resource limit',
+                code: 'session_export_too_large',
                 count: result.count,
-                limit: result.limit
+                estimatedBytes: result.estimatedBytes,
+                maxBytes: result.maxBytes
             }, 413)
+        }
+        if (result.type === 'warning') {
+            return c.json(result)
         }
 
         return c.json(result.payload)
@@ -324,6 +363,73 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         return c.json({ ok: true })
     })
 
+    app.post('/sessions/:id/fork', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
+        const rawBody = await c.req.text()
+        let body: unknown = {}
+        if (rawBody.trim()) {
+            try {
+                body = JSON.parse(rawBody)
+            } catch {
+                return c.json({ error: 'Invalid JSON body' }, 400)
+            }
+        }
+        const parsed = ForkConversationRequestSchema.safeParse(body)
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid body' }, 400)
+        }
+
+        const result = await engine.forkConversation(
+            sessionResult.sessionId,
+            c.get('namespace'),
+            parsed.data.messageLocalId
+        )
+        if (result.type === 'error') {
+            return c.json({ error: result.message }, 409)
+        }
+        return c.json({ sessionId: result.sessionId })
+    })
+
+    app.post('/sessions/:id/rewind', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
+        const body = await c.req.json().catch(() => null)
+        const parsed = RewindConversationRequestSchema.safeParse(body)
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid body' }, 400)
+        }
+
+        const result = await engine.rewindConversation(
+            sessionResult.sessionId,
+            c.get('namespace'),
+            parsed.data.messageLocalId
+        )
+        if (result.type === 'error') {
+            return c.json({
+                error: result.message,
+                hydrateFailed: result.hydrateFailed === true
+            }, result.hydrateFailed ? 500 : 409)
+        }
+        return c.json({ success: true as const })
+    })
+
     app.post('/sessions/:id/archive', async (c) => {
         // tiann/hapi#916: relax the blanket `requireActive: true` guard so
         // the endpoint is idempotent for already-archived rows AND can clean
@@ -488,6 +594,40 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ ok: true })
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to apply collaboration mode'
+            return c.json({ error: message }, 409)
+        }
+    })
+
+    app.post('/sessions/:id/copilot-agent-mode', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
+        const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
+        if (flavor !== 'copilot') {
+            return c.json({ error: 'Copilot agent mode is only supported for Copilot sessions' }, 400)
+        }
+        if (sessionResult.session.agentState?.controlledByUser === true) {
+            return c.json({ error: 'Copilot agent mode can only be changed for remote Copilot sessions' }, 409)
+        }
+
+        const body = await c.req.json().catch(() => null)
+        const parsed = SessionCopilotAgentModeRequestSchema.safeParse(body)
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid body' }, 400)
+        }
+
+        try {
+            await engine.applySessionConfig(sessionResult.sessionId, { copilotAgentMode: parsed.data.mode })
+            return c.json({ ok: true })
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to apply Copilot agent mode'
             return c.json({ error: message }, 409)
         }
     })
@@ -670,6 +810,74 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
     })
 
+    app.post('/sessions/:id/title-suggestion', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
+        try {
+            const title = await engine.suggestSessionTitle(sessionResult.sessionId)
+            return c.json({ title })
+        } catch (error) {
+            if (error instanceof TitleSuggestionError) {
+                return c.json({ error: error.message }, error.status)
+            }
+            return c.json({ error: 'Failed to generate a session title' }, 502)
+        }
+    })
+
+    app.patch('/sessions/:id/summary', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
+        const body = await c.req.json().catch(() => null)
+        const parsed = UpdateSessionSummaryRequestSchema.safeParse(body)
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid body: text is required' }, 400)
+        }
+
+        try {
+            await engine.updateSessionSummary(sessionResult.sessionId, parsed.data.text)
+            return c.json({ ok: true })
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to update session summary'
+            if (message.includes('concurrently') || message.includes('version')) {
+                return c.json({ error: message }, 409)
+            }
+            return c.json({ error: message }, 500)
+        }
+    })
+
+    app.put('/sessions/:id/pin', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) return sessionResult
+
+        const body = await c.req.json().catch(() => null)
+        const parsed = SetSessionPinnedRequestSchema.safeParse(body)
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid body: mode must be none, project, or global' }, 400)
+        }
+
+        engine.setSessionPinMode(sessionResult.sessionId, parsed.data.mode)
+        return c.json({ ok: true })
+    })
+
     app.delete('/sessions/:id', async (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) {
@@ -711,6 +919,84 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
      * carrying `scratchlistUpdatedAt` (handled in `SyncEngine`). The web
      * client uses that as a cache-invalidation token to refetch GET.
      */
+
+    app.get('/sessions/:id/scratchlist/limits', (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+        return c.json({ limits: loadScratchlistAttachmentLimitsFromEnv() })
+    })
+
+    app.post('/sessions/:id/scratchlist/upload', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
+        const body = await c.req.json().catch(() => null)
+        const parsed = UploadFileRequestSchema.safeParse(body)
+        if (!parsed.success) {
+            return c.json({ error: 'Invalid body' }, 400)
+        }
+
+        const namespace = c.get('namespace')
+        const result = await engine.uploadScratchlistAttachment(
+            sessionResult.sessionId,
+            namespace,
+            parsed.data.filename,
+            parsed.data.content,
+            parsed.data.mimeType
+        )
+        if (!result.success) {
+            const status = result.code === 'scratchlist_attachment_too_large' ? 413 : 400
+            return c.json({ success: false, error: result.error, code: result.code }, status)
+        }
+        return c.json({ success: true, attachment: result.attachment })
+    })
+
+    app.get('/sessions/:id/scratchlist/attachments/:attachmentId', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+        const attachmentId = c.req.param('attachmentId')
+        if (!attachmentId) {
+            return c.json({ error: 'Missing attachmentId' }, 400)
+        }
+
+        const entries = engine.listScratchlistEntries(sessionResult.sessionId)
+        const match = entries
+            .flatMap((entry) => entry.attachments)
+            .find((att) => att.id === attachmentId)
+        if (!match) {
+            return c.json({ error: 'Attachment not found' }, 404)
+        }
+
+        const file = await engine.readScratchlistAttachment(match.path)
+        if (!file) {
+            return c.json({ error: 'Attachment file missing' }, 404)
+        }
+        return new Response(file.buffer, {
+            headers: {
+                'Content-Type': match.mimeType,
+                // Defense in depth: metadata may predate resolve-time canonicalize.
+                'Content-Disposition': `inline; filename="${match.filename.replace(/[\r\n\0"\\]/g, '_')}"`,
+            },
+        })
+    })
 
     app.get('/sessions/:id/scratchlist', (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
@@ -771,12 +1057,36 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             }, 409)
         }
 
+        const limits = loadScratchlistAttachmentLimitsFromEnv()
+        const namespace = c.get('namespace')
+        const checked = await engine.resolveScratchlistAttachmentsForSession(
+            sessionResult.sessionId,
+            namespace,
+            parsed.data.attachments
+        )
+        if (!checked.ok) {
+            return c.json({ error: checked.error, code: 'scratchlist_attachment_invalid' }, 400)
+        }
+        const diskBytes = await engine.sumScratchlistAttachmentBytesOnDisk(sessionResult.sessionId, namespace)
+        const entryBytes = checked.attachments.reduce((sum, att) => sum + att.size, 0)
+        // Files are already on disk from upload; don't double-count them.
+        const sessionBytesBefore = Math.max(0, diskBytes - entryBytes)
+        const attachmentValidation = validateScratchlistAttachmentsForWrite(
+            checked.attachments,
+            limits,
+            sessionBytesBefore
+        )
+        if (!attachmentValidation.ok) {
+            return c.json({ error: attachmentValidation.error, code: attachmentValidation.code }, 400)
+        }
+
         const result = engine.createScratchlistEntry(
             sessionResult.sessionId,
-            parsed.data.text,
+            parsed.data.text.trim(),
             {
                 entryId: parsed.data.entryId,
-                createdAt: parsed.data.createdAt
+                createdAt: parsed.data.createdAt,
+                attachments: checked.attachments,
             }
         )
         if (result.outcome === 'session-not-found') {
@@ -809,15 +1119,111 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400)
         }
 
+        const existing = engine.getScratchlistEntry(sessionResult.sessionId, entryId)
+        if (!existing) {
+            return c.json({ error: 'Scratchlist entry not found' }, 404)
+        }
+
+        const nextText = parsed.data.text !== undefined ? parsed.data.text.trim() : existing.text
+        const namespace = c.get('namespace')
+        let nextAttachments = existing.attachments
+        if (parsed.data.attachments !== undefined) {
+            const checked = await engine.resolveScratchlistAttachmentsForSession(
+                sessionResult.sessionId,
+                namespace,
+                parsed.data.attachments
+            )
+            if (!checked.ok) {
+                return c.json({ error: checked.error, code: 'scratchlist_attachment_invalid' }, 400)
+            }
+            nextAttachments = checked.attachments
+        }
+        if (nextText.trim().length === 0 && nextAttachments.length === 0) {
+            return c.json({
+                error: 'Scratchlist entry requires text or attachments',
+                code: 'scratchlist_entry_empty',
+            }, 400)
+        }
+        const limits = loadScratchlistAttachmentLimitsFromEnv()
+        const diskBytes = await engine.sumScratchlistAttachmentBytesOnDisk(sessionResult.sessionId, namespace)
+        const removedAttachments = existing.attachments.filter(
+            (old) => !nextAttachments.some((next) => next.id === old.id)
+        )
+        const sessionBytesBefore = scratchlistSessionBytesBeforeForPut(
+            diskBytes,
+            nextAttachments,
+            removedAttachments,
+        )
+        const attachmentValidation = validateScratchlistAttachmentsForWrite(
+            nextAttachments,
+            limits,
+            sessionBytesBefore
+        )
+        if (!attachmentValidation.ok) {
+            return c.json({ error: attachmentValidation.error, code: attachmentValidation.code }, 400)
+        }
+
         const updated = engine.updateScratchlistEntry(
             sessionResult.sessionId,
             entryId,
-            parsed.data.text
+            {
+                text: nextText,
+                attachments: nextAttachments,
+            }
         )
         if (!updated) {
             return c.json({ error: 'Scratchlist entry not found' }, 404)
         }
+        if (removedAttachments.length > 0) {
+            const remainingIds = new Set(
+                engine
+                    .listScratchlistEntries(sessionResult.sessionId)
+                    .flatMap((entry) => entry.attachments.map((att) => att.id))
+            )
+            const orphaned = removedAttachments.filter((att) => !remainingIds.has(att.id))
+            if (orphaned.length > 0) {
+                void import('../../scratchlistAttachments/storage').then(({ deleteScratchlistAttachmentFiles, getHapiHomeDir }) =>
+                    deleteScratchlistAttachmentFiles(getHapiHomeDir(), orphaned)
+                )
+            }
+        }
         return c.json({ entry: updated })
+    })
+
+    app.delete('/sessions/:id/scratchlist/attachments/:attachmentId', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+        const sessionResult = requireSessionFromParam(c, engine)
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+        const attachmentId = c.req.param('attachmentId')
+        if (!attachmentId) {
+            return c.json({ error: 'Missing attachmentId' }, 400)
+        }
+
+        const entries = engine.listScratchlistEntries(sessionResult.sessionId)
+        const stillReferenced = entries.some((entry) =>
+            entry.attachments.some((att) => att.id === attachmentId)
+        )
+        if (stillReferenced) {
+            return c.json({
+                error: 'Attachment is still referenced by a scratchlist entry',
+                code: 'scratchlist_attachment_in_use',
+            }, 409)
+        }
+
+        const removed = await engine.deleteScratchlistAttachmentById(
+            sessionResult.sessionId,
+            c.get('namespace'),
+            attachmentId
+        )
+        if (!removed) {
+            return c.json({ error: 'Attachment not found' }, 404)
+        }
+        return c.json({ ok: true })
     })
 
     app.delete('/sessions/:id/scratchlist/:entryId', (c) => {
@@ -941,6 +1347,36 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
         }
     })
 
+    app.get('/sessions/:id/codex-models', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) {
+            return engine
+        }
+
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) {
+            return sessionResult
+        }
+
+        const flavor = sessionResult.session.metadata?.flavor ?? 'claude'
+        if (flavor !== 'codex') {
+            return c.json({
+                success: false,
+                error: 'Codex models are only available for Codex sessions'
+            }, 400)
+        }
+
+        try {
+            const result = await engine.listCodexModelsForSession(sessionResult.sessionId)
+            return c.json(result)
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to list Codex models'
+            }, 500)
+        }
+    })
+
     app.get('/sessions/:id/opencode-models', async (c) => {
         const engine = requireSyncEngine(c, getSyncEngine)
         if (engine instanceof Response) {
@@ -1033,6 +1469,24 @@ export function createSessionsRoutes(getSyncEngine: () => SyncEngine | null): Ho
             return c.json({
                 success: false,
                 error: error instanceof Error ? error.message : 'Failed to list Grok effort options'
+            }, 500)
+        }
+    })
+
+    app.get('/sessions/:id/copilot-models', async (c) => {
+        const engine = requireSyncEngine(c, getSyncEngine)
+        if (engine instanceof Response) return engine
+        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        if (sessionResult instanceof Response) return sessionResult
+        if (sessionResult.session.metadata?.flavor !== 'copilot') {
+            return c.json({ success: false, error: 'Copilot models are only available for Copilot sessions' }, 400)
+        }
+        try {
+            return c.json(await engine.listCopilotModelsForSession(sessionResult.sessionId))
+        } catch (error) {
+            return c.json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to list Copilot models'
             }, 500)
         }
     })

@@ -1,5 +1,6 @@
 import type {
     CodexCollaborationMode,
+    CopilotAgentMode,
     DecryptedMessage as ProtocolDecryptedMessage,
     Machine,
     RunnerState,
@@ -10,6 +11,8 @@ import type {
 } from '@hapi/protocol/types'
 
 export type {
+    AgyModelsResponse,
+    AgyModelSummary,
     ClaudeModelsResponse,
     ClaudeModelSummary,
     CodexModelsResponse,
@@ -24,6 +27,8 @@ export type {
     GitCommandResponse,
     GrokModelsResponse,
     GrokModelSummary,
+    CopilotModelsResponse,
+    CopilotModelSummary,
     GrokReasoningEffortResponse,
     GrokReasoningEffortOption,
     ListDirectoryResponse,
@@ -42,6 +47,7 @@ export type {
     SlashCommand,
     SlashCommandsResponse,
     SessionResponse,
+    SessionTitleSuggestionResponse,
     SessionsResponse,
     SpawnResponse,
     UploadFileResponse
@@ -51,6 +57,7 @@ export type {
     AgentState,
     AttachmentMetadata,
     CodexCollaborationMode,
+    CopilotAgentMode,
     Metadata,
     PermissionMode,
     Machine,
@@ -72,7 +79,11 @@ export type {
     WorktreeMetadata
 } from '@hapi/protocol/types'
 
-export type { HapiSessionExport } from '@hapi/protocol/sessionExport'
+export type {
+    HapiSessionExport,
+    HapiSessionExportResponse,
+    HapiSessionExportWarning
+} from '@hapi/protocol/sessionExport'
 
 export type SessionMetadataSummary = {
     path: string
@@ -84,10 +95,30 @@ export type SessionMetadataSummary = {
     machineId?: string
     tools?: string[]
     flavor?: string | null
+    startingMode?: 'local' | 'remote' | 'pty' | null
     capabilities?: {
         terminal?: boolean
+        conversationHistory?: {
+            forkCurrent?: boolean
+            forkAtMessage?: boolean
+            rewindToMessage?: boolean
+        }
     }
+    conversationHistoryPoints?: Record<string, true>
+    conversationHistoryIndexes?: Record<string, number>
+    conversationHistoryTurns?: Record<string, string>
+    conversationHistoryEntryIds?: Record<string, string>
+    conversationHistoryDiverged?: boolean
     worktree?: WorktreeMetadata
+}
+
+export type HubHealthResponse = {
+    status: string
+    protocolVersion: number
+    capabilities?: {
+        workGraph?: boolean
+        titleSuggestion?: boolean
+    }
 }
 
 export type MessageStatus = 'queued' | 'sending' | 'sent' | 'failed'
@@ -202,6 +233,47 @@ export type CodexLocalSessionsResponse = {
     error: string
     sessions: []
     machineId?: string
+}
+
+export type PiLocalSessionSummary = {
+    id: string
+    title: string
+    lastUserMessage?: string | null
+    cwd?: string | null
+    file: string
+    modifiedAt: number
+    model?: string | null
+    thinkingLevel?: string | null
+    leafEntryId?: string | null
+    messageCount: number
+    hapiSessionId?: string
+    importState?: 'importing' | 'complete' | 'failed' | 'diverged'
+}
+
+export type PiLocalSessionsResponse = {
+    success: true
+    sessions: PiLocalSessionSummary[]
+    machineId: string
+} | {
+    success: false
+    error: string
+    sessions: []
+    machineId?: string
+}
+
+export type PiImportResult = {
+    piSessionId: string
+    hapiSessionId?: string
+    action?: 'created' | 'updated' | 'unchanged'
+    appended?: number
+    error?: { code: string; message: string }
+}
+
+export type PiImportSessionsResponse = {
+    success: boolean
+    results: PiImportResult[]
+    machineId?: string
+    error?: string
 }
 
 

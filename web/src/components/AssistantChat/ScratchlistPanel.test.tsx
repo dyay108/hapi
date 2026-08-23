@@ -237,7 +237,7 @@ describe('ScratchlistPanel', () => {
         renderPanel()
         expandPanel()
 
-        const copyBtn = screen.getByRole('button', { name: 'Copy to clipboard' })
+        const copyBtn = screen.getByRole('button', { name: 'Copy text to clipboard (not images)' })
         fireEvent.click(copyBtn)
 
         await waitFor(() => expect(writeText).toHaveBeenCalledWith('copy me'))
@@ -272,12 +272,12 @@ describe('ScratchlistPanel', () => {
         renderPanel()
         expandPanel()
 
-        fireEvent.click(screen.getByRole('button', { name: 'Copy to clipboard' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Copy text to clipboard (not images)' }))
 
         await waitFor(() => expect(writeText).toHaveBeenCalled())
         // Should NOT flip to "Copied!" because the copy failed.
         expect(screen.queryByRole('button', { name: 'Copied!' })).toBeNull()
-        expect(screen.getByRole('button', { name: 'Copy to clipboard' })).toBeTruthy()
+        expect(screen.getByRole('button', { name: 'Copy text to clipboard (not images)' })).toBeTruthy()
     })
 
     it('persists collapse state across mounts for the same session', () => {
@@ -373,5 +373,51 @@ describe('ScratchlistPanel', () => {
         renderPanel()
         expandPanel()
         expect(screen.queryByTestId('scratchlist-entry-age')).toBeNull()
+    })
+})
+
+describe('ScratchlistDrawer disabled operations', () => {
+    it('disables and synchronously ignores move, delete, and promote actions while the parent send is pending', async () => {
+        const { ScratchlistDrawer } = await import('./ScratchlistPanel')
+        const entry = makeEntry({ id: 'pending-entry', text: 'held message' })
+        const onMove = vi.fn()
+        const onDelete = vi.fn()
+        const onPromoteToComposer = vi.fn()
+        const onPromoteToQueue = vi.fn(async () => true)
+
+        render(
+            <I18nProvider>
+                <ScratchlistDrawer
+                    entries={[entry]}
+                    sessionId={SID}
+                    api={{} as never}
+                    disabled
+                    onMove={onMove}
+                    onDelete={onDelete}
+                    onPromoteToComposer={onPromoteToComposer}
+                    onPromoteToQueue={onPromoteToQueue}
+                />
+            </I18nProvider>,
+        )
+
+        const mutationButtons = [
+            ...screen.getAllByRole('button', { name: 'Move entry up' }),
+            ...screen.getAllByRole('button', { name: 'Move entry down' }),
+            screen.getByRole('button', { name: 'Copy into composer' }),
+            screen.getByRole('button', { name: 'Send to queue' }),
+            screen.getByRole('button', { name: 'Delete entry' }),
+        ]
+        for (const button of mutationButtons) {
+            expect(button).toBeDisabled()
+            fireEvent.click(button)
+        }
+        // Copy is read-only and remains available while a chat send is pending.
+        expect(screen.getByRole('button', { name: 'Copy text to clipboard (not images)' })).not.toBeDisabled()
+
+        await Promise.resolve()
+        expect(onMove).not.toHaveBeenCalled()
+        expect(onDelete).not.toHaveBeenCalled()
+        expect(onPromoteToComposer).not.toHaveBeenCalled()
+        expect(onPromoteToQueue).not.toHaveBeenCalled()
     })
 })

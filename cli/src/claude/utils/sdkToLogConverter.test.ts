@@ -69,6 +69,52 @@ describe('SDKToLogConverter', () => {
             expect(logMessage?.type).toBe('user')
             expect((logMessage as any).message.content).toHaveLength(2)
         })
+
+        it('should mark synthetic user messages as meta', () => {
+            // Skill injections arrive over stream-json as plain-text user messages
+            // flagged with isSynthetic. The on-disk transcript flags the same event
+            // with isMeta, which is what every downstream filter looks for.
+            const sdkMessage: SDKUserMessage = {
+                type: 'user',
+                isSynthetic: true,
+                message: {
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: 'Base directory for this skill: /home/user/.claude/skills/foo' }
+                    ]
+                }
+            }
+
+            const logMessage = converter.convert(sdkMessage)
+
+            expect(logMessage?.type).toBe('user')
+            expect(logMessage?.isMeta).toBe(true)
+        })
+
+        it('should preserve isMeta on user messages', () => {
+            const sdkMessage: SDKUserMessage = {
+                type: 'user',
+                isMeta: true,
+                message: {
+                    role: 'user',
+                    content: 'injected context'
+                }
+            }
+
+            expect(converter.convert(sdkMessage)?.isMeta).toBe(true)
+        })
+
+        it('should not mark genuine user messages as meta', () => {
+            const sdkMessage: SDKUserMessage = {
+                type: 'user',
+                message: {
+                    role: 'user',
+                    content: 'Hello Claude'
+                }
+            }
+
+            expect(converter.convert(sdkMessage)?.isMeta).toBeUndefined()
+        })
     })
 
     describe('Assistant messages', () => {
@@ -159,7 +205,11 @@ describe('SDKToLogConverter', () => {
     })
 
     describe('Result messages', () => {
-        it('should not convert result messages', () => {
+        it('converts successful results into a round-summary carrier without advancing the parent chain', () => {
+            const preceding = converter.convert({
+                type: 'user',
+                message: { role: 'user', content: 'first request' }
+            } as SDKUserMessage)
             const sdkMessage: SDKResultMessage = {
                 type: 'result',
                 subtype: 'success',
@@ -173,15 +223,41 @@ describe('SDKToLogConverter', () => {
                 duration_ms: 3000,
                 duration_api_ms: 2500,
                 is_error: false,
-                session_id: 'result-session'
+                session_id: 'result-session',
+                modelUsage: {
+                    'claude-opus-5': {
+                        inputTokens: 80,
+                        cacheCreationInputTokens: 20,
+                        cacheReadInputTokens: 100_000,
+                        outputTokens: 500
+                    }
+                }
             }
 
             const logMessage = converter.convert(sdkMessage)
 
-            expect(logMessage).toBeNull()
+            expect(logMessage).toMatchObject({
+                type: 'system',
+                subtype: 'turn_duration',
+                parentUuid: preceding?.uuid,
+                durationMs: 3000,
+                resultSummary: {
+                    usage: sdkMessage.usage,
+                    modelUsage: sdkMessage.modelUsage,
+                    total_cost_usd: 0.05,
+                    num_turns: 5,
+                    duration_ms: 3000
+                }
+            })
+
+            const following = converter.convert({
+                type: 'user',
+                message: { role: 'user', content: 'second request' }
+            } as SDKUserMessage)
+            expect(following?.parentUuid).toBe(preceding?.uuid)
         })
 
-        it('should not convert error results', () => {
+        it('converts error results into the same carrier shape', () => {
             const sdkMessage: SDKResultMessage = {
                 type: 'result',
                 subtype: 'error_max_turns',
@@ -195,8 +271,49 @@ describe('SDKToLogConverter', () => {
 
             const logMessage = converter.convert(sdkMessage)
 
-            // Error results are not converted to summaries
-            expect(logMessage).toBeFalsy()
+            expect(logMessage).toMatchObject({
+                type: 'system',
+                subtype: 'turn_duration',
+                durationMs: 5000,
+                resultSummary: {
+                    total_cost_usd: 0.1,
+                    num_turns: 10,
+                    duration_ms: 5000
+                }
+            })
+        })
+
+        it('does not let a sidechain result carrier advance the sidechain parent chain', () => {
+            const parentToolUseId = 'toolu_sidechain_result'
+            const firstSidechainAssistant = converter.convert({
+                type: 'assistant',
+                parent_tool_use_id: parentToolUseId,
+                message: { role: 'assistant', content: [{ type: 'text', text: 'working' }] }
+            } as unknown as SDKAssistantMessage)
+
+            const result = converter.convert({
+                type: 'result',
+                subtype: 'success',
+                parent_tool_use_id: parentToolUseId,
+                num_turns: 1,
+                total_cost_usd: 0,
+                duration_ms: 100,
+                duration_api_ms: 100,
+                is_error: false,
+                session_id: 'sidechain-result'
+            } as unknown as SDKResultMessage)
+
+            const followingSidechainAssistant = converter.convert({
+                type: 'assistant',
+                parent_tool_use_id: parentToolUseId,
+                message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] }
+            } as unknown as SDKAssistantMessage)
+
+            expect(result).toMatchObject({
+                isSidechain: true,
+                parentUuid: firstSidechainAssistant?.uuid
+            })
+            expect(followingSidechainAssistant?.parentUuid).toBe(firstSidechainAssistant?.uuid)
         })
     })
 

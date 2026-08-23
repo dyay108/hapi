@@ -314,6 +314,7 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                 message: string;
                 mode: EnhancedMode;
                 isolate: boolean;
+                hash: string;
                 items: Array<{ message: string; localId?: string }>;
             } | null = null;
 
@@ -367,6 +368,7 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                     items: Array<{ message: string; localId?: string }>;
                     mode: EnhancedMode;
                     isolate: boolean;
+                    deliveredText: string;
                 };
                 // The `as InFlightMessage | null` (rather than plain `= null`)
                 // is required, not decorative: the only assignments of a
@@ -386,6 +388,11 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                         mcpServers: session.mcpServers,
                         hookSettingsPath: session.hookSettingsPath,
                         canCallTool: permissionHandler.handleToolCall,
+                        bootstrapMode: {
+                            permissionMode: session.getPermissionMode() ?? 'default',
+                            model: session.getModel() ?? undefined,
+                            effort: session.getEffort() ?? undefined,
+                        },
                         isAborted: (toolCallId: string) => {
                             return permissionHandler.isAborted(toolCallId);
                         },
@@ -396,11 +403,21 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                             // to stamp invokedAt on the next user message before it stores the
                             // current turn's queued agent messages — making them sort permanently
                             // below the next user message.
+                            // The result summary is enqueued by onMessage immediately before onReady.
+                            // Drain it before ready so live clients receive the round metadata before
+                            // they close out the running turn.
                             await messageQueue.flush();
 
                             if (pending) {
                                 let p = pending;
                                 pending = null;
+                                // Seed the mode gate from the parked batch. Without this,
+                                // an attempt that starts from `pending` keeps modeHash=null,
+                                // so the next mode switch fails the hash check and its
+                                // messages are fed into a process spawned with the old
+                                // --permission-mode (e.g. auto silently running as default).
+                                modeHash = p.hash;
+                                mode = p.mode;
                                 permissionHandler.handleModeChange(p.mode.permissionMode);
                                 // Re-resolve the selected-model seed hint for every turn, not
                                 // just the first: a single claudeRemote() call keeps accepting
@@ -408,9 +425,14 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                                 // mid-session model switch), so a construction-time snapshot
                                 // would go stale. See SDKToLogConverter.updateSelectedModel.
                                 sdkToLogConverter.updateSelectedModel(p.mode.model ?? null);
-                                inFlightMessage = { items: p.items, mode: p.mode, isolate: p.isolate };
                                 deliveredMessageThisAttempt = true;
-                                return p;
+                                const deliveredText = session.expandSkillReference(p.message)
+                                inFlightMessage = { items: p.items, mode: p.mode, isolate: p.isolate, deliveredText };
+                                session.client.notePendingHubPromptEcho(
+                                    deliveredText,
+                                    p.items.flatMap((item) => item.localId ? [item.localId] : [])
+                                )
+                                return { ...p, message: deliveredText };
                             }
 
                             let msg = await session.queue.waitForMessagesAndGetAsString(controller.signal);
@@ -438,10 +460,15 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                                 mode = msg.mode;
                                 permissionHandler.handleModeChange(mode.permissionMode);
                                 sdkToLogConverter.updateSelectedModel(mode.model ?? null);
-                                inFlightMessage = { items: msg.items, mode: msg.mode, isolate: msg.isolate };
                                 deliveredMessageThisAttempt = true;
+                                const deliveredText = session.expandSkillReference(msg.message)
+                                inFlightMessage = { items: msg.items, mode: msg.mode, isolate: msg.isolate, deliveredText };
+                                session.client.notePendingHubPromptEcho(
+                                    deliveredText,
+                                    msg.items.flatMap((item) => item.localId ? [item.localId] : [])
+                                )
                                 return {
-                                    message: msg.message,
+                                    message: deliveredText,
                                     mode: msg.mode
                                 };
                             }
@@ -480,13 +507,20 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                             // just asked to clear.
                             session.consumeOneTimeFlags();
                         },
-                        onReady: () => {
+                        onReady: async (completionEvent?: string) => {
                             // Reaching ready at all means this attempt is not an
                             // immediate/deterministic failure -- reset the
                             // respawn-storm guard. The turn that led here is no
                             // longer "in flight" either.
                             reachedReadyThisAttempt = true;
                             inFlightMessage = null;
+
+                            await messageQueue.flush();
+
+                            if (completionEvent) {
+                                logger.debug(`[remote]: Completion event: ${completionEvent}`);
+                                session.client.sendSessionEvent({ type: 'message', message: completionEvent });
+                            }
 
                             logger.debug(
                                 `[claudeRemoteLauncher][async-debug] onReady callback ` +
@@ -579,6 +613,14 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
                             // Reset the streak and keep the loop (and this OS
                             // process) alive so an unrelated later message
                             // gets its own fresh budget.
+                            for (const item of inFlightMessage?.items ?? []) {
+                                if (item.localId) {
+                                    session.client.discardPendingHubPromptEcho(item.localId)
+                                }
+                            }
+                            if (inFlightMessage?.deliveredText) {
+                                session.client.discardPendingHubPromptEchoText(inFlightMessage.deliveredText)
+                            }
                             inFlightMessage = null;
                             session.client.sendSessionEvent({
                                 type: 'message',

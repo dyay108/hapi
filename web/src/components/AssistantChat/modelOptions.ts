@@ -1,5 +1,6 @@
 import type { ClaudeCatalogModel } from '@hapi/protocol'
 import { MODEL_OPTIONS } from '@/components/NewSession/types'
+import { CURSOR_AUTO_MODEL_LABEL } from '@/lib/cursorModelOptions'
 import { getClaudeComposerModelOptions, getNextClaudeComposerModel } from './claudeModelOptions'
 import type { ClaudeComposerModelOption } from './claudeModelOptions'
 
@@ -70,6 +71,14 @@ function getClaudeModelOptions(currentModel?: string | null, customOptions?: Mod
     return getClaudeComposerModelOptions(currentModel, catalog)
 }
 
+function getAgyModelOptions(currentModel?: string | null): ModelOption[] {
+    const options = MODEL_OPTIONS.agy.filter((m) => m.value !== 'auto').map((m) => ({
+        value: m.value,
+        label: m.label
+    }))
+    return withCurrentModelOption(options, currentModel)
+}
+
 function getGeminiModelOptions(currentModel?: string | null): ModelOption[] {
     const options = MODEL_OPTIONS.gemini.map((m) => ({
         value: m.value === 'auto' ? null : m.value,
@@ -92,6 +101,9 @@ export function getModelOptionsForFlavor(
     currentModel?: string | null,
     customOptions?: ModelOption[]
 ): ModelOption[] {
+    if (flavor === 'agy') {
+        return getAgyModelOptions(currentModel)
+    }
     if (flavor === 'claude') {
         return getClaudeModelOptions(currentModel, customOptions)
     }
@@ -115,11 +127,17 @@ export function getModelOptionsForFlavor(
         return []
     }
     if (flavor === 'cursor') {
-        return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
+        return withCurrentModelOption([{ value: null, label: CURSOR_AUTO_MODEL_LABEL }], currentModel)
     }
     // Kimi has no predefined model list — show just the auto/default option.
     if (flavor === 'kimi') {
         return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
+    }
+    if (flavor === 'copilot') {
+        if (customOptions && customOptions.length > 0) {
+            return withCurrentModelOption(customOptions, currentModel)
+        }
+        return withCurrentModelOption([{ value: null, label: 'Auto' }], currentModel)
     }
     if (flavor === 'grok') {
         return withCurrentModelOption([{ value: null, label: 'Default' }], currentModel)
@@ -140,6 +158,14 @@ export function getNextModelForFlavor(
     currentModel?: string | null,
     customOptions?: ModelOption[]
 ): string | null {
+    if (flavor === 'agy') {
+        const options = getAgyModelOptions(currentModel)
+        const currentIndex = options.findIndex((option) => option.value === (normalizeCurrentModel(currentModel) ?? null))
+        if (currentIndex === -1) {
+            return options.find((option) => option.value !== null)?.value ?? null
+        }
+        return options[(currentIndex + 1) % options.length]?.value ?? null
+    }
     if (flavor === 'claude') {
         const options = getClaudeModelOptions(currentModel, customOptions)
         const currentIndex = options.findIndex((option) => option.value === (normalizeCurrentModel(currentModel) ?? null))
@@ -171,6 +197,9 @@ export function getNextModelForFlavor(
         return normalizeCurrentModel(currentModel)
     }
     if (flavor === 'kimi') {
+        return normalizeCurrentModel(currentModel)
+    }
+    if (flavor === 'copilot') {
         return normalizeCurrentModel(currentModel)
     }
     if (flavor === 'grok') {

@@ -48,9 +48,21 @@ describe('remarkFilePathLinks', () => {
         expect(links.map(linkedPath)).toEqual(['screenshot.png', 'README.md'])
     })
 
+    it('autolinks Windows absolute paths as hapi-file-candidate (backslash-safe through hast)', () => {
+        const nodes = transform('Open C:\\Users\\dev\\project\\handoff.md and D:/work/app/src/main.ts:12')
+        const links = nodes.filter((node) => node.type === 'link')
 
-    it('does not link paths that are outside the session workspace', () => {
-        const nodes = transform('Skip /Users/dev/project/a.png, ~/a.png, ../a.png and C:\\tmp\\a.png')
+        expect(links.map((n) => n.url)).toEqual([
+            'hapi-file-candidate:' + encodeURIComponent('C:\\Users\\dev\\project\\handoff.md'),
+            'hapi-file-candidate:' + encodeURIComponent('D:/work/app/src/main.ts'),
+        ])
+        for (const link of links) {
+            expect(decodeFilePathHref(link.url as string)).toBeNull()
+        }
+    })
+
+    it('does not link other absolute or parent paths', () => {
+        const nodes = transform('Skip /Users/dev/project/a.png, ~/a.png and ../a.png')
 
         expect(nodes.some((node) => node.type === 'link')).toBe(false)
     })
@@ -108,6 +120,19 @@ describe('remarkFilePathLinks — inlineCode', () => {
     })
 
     it.each([
+        'C:\\Users\\dev\\project\\handoff.md',
+        'D:/work/app/src/main.ts:12'
+    ])('autolinks Windows absolute inlineCode path %s as hapi-file-candidate', (value) => {
+        const nodes = transformNodes([{ type: 'inlineCode', value }])
+        const link = nodes.find((node) => node.type === 'link')!
+        const expected = value.replace(/:\d+(?::\d+)?$/, '')
+        expect(link.url).toBe('hapi-file-candidate:' + encodeURIComponent(expected))
+        expect(decodeFilePathHref(link.url as string)).toBeNull()
+        expect(link.children?.[0]?.type).toBe('inlineCode')
+        expect(link.children?.[0]?.value).toBe(value)
+    })
+
+    it.each([
         'npm run build',
         'str.split()',
         'Math.PI',
@@ -122,7 +147,7 @@ describe('remarkFilePathLinks — inlineCode', () => {
     })
 
     it('does not link unsafe paths inside inlineCode', () => {
-        for (const value of ['/etc/passwd.sh', '~/secrets.env', '../escape.ts', 'C:\\win.ini']) {
+        for (const value of ['/etc/passwd.sh', '~/secrets.env', '../escape.ts']) {
             const nodes = transformNodes([{ type: 'inlineCode', value }])
             expect(nodes.some((node) => node.type === 'link')).toBe(false)
         }
@@ -154,14 +179,39 @@ describe('remarkFilePathLinks — explicit markdown links', () => {
         expect(linkedPath(nodes.find((n) => n.type === 'link')!)).toBe('./diagram.mmd')
     })
 
+    it('rewrites a relative link with a #fragment, stripping it from the target', () => {
+        const nodes = transformNodes([linkNode('docs/foo.md#section')])
+        expect(linkedPath(nodes.find((n) => n.type === 'link')!)).toBe('docs/foo.md')
+    })
+
+    it('does not rewrite POSIX absolute file links (containment needs session cwd in <A>)', () => {
+        const nodes = transformNodes([linkNode('/home/ada/coding/hapi/docs/a.md')])
+        const link = nodes.find((n) => n.type === 'link')!
+        expect(decodeFilePathHref(link.url as string)).toBeNull()
+        expect(link.url).toBe('/home/ada/coding/hapi/docs/a.md')
+    })
+
+    it.each([
+        'C:\\Users\\dev\\project\\handoff.md',
+        'D:/work/app/src/main.ts:12',
+        'D:/outside/secret.ts#L1',
+    ])('rewrites Windows absolute file link %s to hapi-file-candidate (not premature hapi-file)', (url) => {
+        const nodes = transformNodes([linkNode(url)])
+        const link = nodes.find((node) => node.type === 'link')!
+        const withoutMeta = url.replace(/#.*$/, '').replace(/\?.*$/, '')
+        const expectedPath = withoutMeta.replace(/:\d+(?::\d+)?$/, '')
+        expect(decodeFilePathHref(link.url as string)).toBeNull()
+        expect(link.url).toBe('hapi-file-candidate:' + encodeURIComponent(expectedPath))
+    })
+
     it.each([
         'https://example.com/a.md',
         'mailto:dev@example.com',
         'obsidian://open?file=a.md',
         '/abs/path.md',
+        '/etc/passwd.sh',
         '~/home.md',
         '../escape.md',
-        'C:\\win\\a.md',
         'foo:bar.md',
         '/settings',
         './relative-route',
