@@ -12,6 +12,7 @@ COPY package.json bun.lock tsconfig.base.json ./
 COPY cli/package.json cli/package.json
 COPY docs/package.json docs/package.json
 COPY hub/package.json hub/package.json
+COPY relay/package.json relay/package.json
 COPY shared/package.json shared/package.json
 COPY web/package.json web/package.json
 COPY website/package.json website/package.json
