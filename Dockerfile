@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG BUN_VERSION=1.3.14
+ARG BUN_VERSION=1.4.0
 
 FROM oven/bun:${BUN_VERSION}-debian AS build
 
@@ -8,7 +8,7 @@ WORKDIR /src
 
 # Install dependencies before copying the source so dependency layers remain
 # reusable when application files change.
-COPY package.json bun.lock tsconfig.base.json ./
+COPY package.json bun.lock bunfig.toml tsconfig.base.json ./
 COPY cli/package.json cli/package.json
 COPY docs/package.json docs/package.json
 COPY hub/package.json hub/package.json
