@@ -4,9 +4,25 @@ set -eu
 mkdir -p \
     "${HAPI_HOME:-/root/.hapi}" \
     "${NPM_CONFIG_PREFIX:-/opt/hapi-tools}" \
+    "${DSH_HOME:-/root/.dsh}" \
     /root/.claude \
     /root/.codex \
     /workspace
+
+bootstrap_lock_dir="${NPM_CONFIG_PREFIX:-/opt/hapi-tools}/.bootstrap.lock"
+
+acquire_bootstrap_lock() {
+    while ! mkdir "$bootstrap_lock_dir" 2>/dev/null; do
+        echo "[hapi-runner] Waiting for tools bootstrap lock"
+        sleep 2
+    done
+    trap 'rm -rf "$bootstrap_lock_dir"' EXIT
+}
+
+release_bootstrap_lock() {
+    rm -rf "$bootstrap_lock_dir"
+    trap - EXIT
+}
 
 installed_version() {
     package_name="$1"
@@ -38,7 +54,30 @@ ensure_npm_tool() {
     npm install --global --no-audit --no-fund "${package_name}@${desired_version}"
 }
 
+ensure_deepseek_harness() {
+    install_dir="${DSH_INSTALL_DIR:-/opt/hapi-tools/deepseek-harness}"
+    repo="${DSH_BOOTSTRAP_REPO:-https://github.com/deepseek-ai/deepseek-harness.git}"
+    ref="${DSH_BOOTSTRAP_REF:-dsh-v0.1.1-rc.2}"
+
+    if [ ! -d "${install_dir}/.git" ]; then
+        echo "[hapi-runner] Installing DeepSeek Harness ${ref} into ${install_dir}"
+        rm -rf "$install_dir"
+        git clone --depth 1 --branch "$ref" "$repo" "$install_dir"
+    fi
+
+    if [ ! -d "${install_dir}/node_modules" ]; then
+        echo "[hapi-runner] Installing DeepSeek Harness dependencies"
+        (cd "$install_dir" && pnpm install --frozen-lockfile)
+    fi
+
+    if [ ! -e "${install_dir}/apps/cli/lib/bin.js" ]; then
+        echo "[hapi-runner] Building DeepSeek Harness"
+        (cd "$install_dir" && pnpm run build)
+    fi
+}
+
 if [ "${HAPI_SKIP_AGENT_BOOTSTRAP:-0}" != "1" ]; then
+    acquire_bootstrap_lock
     ensure_npm_tool \
         "@anthropic-ai/claude-code" \
         "claude" \
@@ -47,6 +86,8 @@ if [ "${HAPI_SKIP_AGENT_BOOTSTRAP:-0}" != "1" ]; then
         "@openai/codex" \
         "codex" \
         "${CODEX_BOOTSTRAP_VERSION:-latest}"
+    ensure_deepseek_harness
+    release_bootstrap_lock
 fi
 
 # Container PID values can be reused after recreation. HAPI's persisted lock

@@ -99,6 +99,7 @@ RUN apt-get update \
         ripgrep \
         rsync \
         shellcheck \
+        socat \
         sqlite3 \
         tmux \
         tree \
@@ -115,10 +116,11 @@ RUN apt-get update \
 COPY --from=build /out/hapi /usr/local/bin/hapi
 COPY --chmod=755 docker/runner-entrypoint.sh /usr/local/bin/hapi-runner-entrypoint
 COPY --chmod=755 docker/runner-healthcheck.sh /usr/local/bin/hapi-runner-healthcheck
+COPY --chmod=755 docker/dsh-web-entrypoint.sh /usr/local/bin/hapi-dsh-web-entrypoint
 
-# Claude Code and Codex are installed at first start into /opt/hapi-tools.
-# Compose bind-mounts that path, so manual npm upgrades survive container
-# recreation and image upgrades.
+# Agent CLIs and DeepSeek Harness are installed at first start into
+# /opt/hapi-tools. Compose bind-mounts that path, so manual upgrades survive
+# container recreation and image upgrades.
 ENV HOME=/root \
     HAPI_HOME=/root/.hapi \
     HAPI_API_URL=http://hapi-hub:3006 \
@@ -126,12 +128,19 @@ ENV HOME=/root \
     NPM_CONFIG_PREFIX=/opt/hapi-tools \
     PATH=/opt/hapi-tools/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin \
     CLAUDE_BOOTSTRAP_VERSION=latest \
-    CODEX_BOOTSTRAP_VERSION=latest
+    CODEX_BOOTSTRAP_VERSION=latest \
+    DSH_HOME=/root/.dsh \
+    DSH_BOOTSTRAP_REPO=https://github.com/deepseek-ai/deepseek-harness.git \
+    DSH_BOOTSTRAP_REF=dsh-v0.1.1-rc.2 \
+    DSH_INSTALL_DIR=/opt/hapi-tools/deepseek-harness \
+    HAPI_DSH_ACP_COMMAND=node \
+    HAPI_DSH_ACP_ARGS_JSON='["/opt/hapi-tools/deepseek-harness/packages/examples/acp-demo/lib/bin.js","--config","/opt/hapi-tools/deepseek-harness/examples/acp-agent/cordis.yml"]'
 
 RUN mkdir -p \
         /opt/hapi-tools \
         /root/.claude \
         /root/.codex \
+        /root/.dsh \
         /root/.hapi \
         /workspace
 
@@ -142,4 +151,3 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
 
 ENTRYPOINT ["hapi-runner-entrypoint"]
 CMD ["hapi", "runner", "start-sync", "--workspace-root", "/workspace"]
-

@@ -3,7 +3,8 @@
 The repository includes separate images for the HAPI hub and runner:
 
 - `ghcr.io/dyay108/hapi-hub` serves the API, SQLite database, and embedded PWA.
-- `ghcr.io/dyay108/hapi-runner` launches Claude Code and Codex sessions.
+- `ghcr.io/dyay108/hapi-runner` launches Claude Code, Codex, and DeepSeek
+  Harness sessions.
 
 The runner intentionally runs as root. This lets it reuse root-owned Claude and
 Codex credentials from the host without changing ownership or copying tokens.
@@ -24,7 +25,8 @@ This creates:
 data/
 ├── hub/       # Hub settings, keys, and SQLite database
 ├── runner/    # Runner machine identity, state, and logs
-├── tools/     # Persistent Claude Code and Codex npm installations
+├── tools/     # Persistent agent tools and DeepSeek Harness checkout
+├── dsh/       # DeepSeek Harness profiles, settings, and session state
 └── ssh/       # Optional dedicated Git deploy keys
 ```
 
@@ -76,10 +78,11 @@ hapi.example.com {
 Open `HAPI_PUBLIC_URL` on Android and enter the same `CLI_API_TOKEN` stored in
 `.env`. The PWA can then be added to the home screen.
 
-## Update Claude Code and Codex
+## Update agent tools
 
-The npm prefix is `/opt/hapi-tools`, backed by `./data/tools`. Updates therefore
-survive restarts, container recreation, and image upgrades:
+The npm prefix is `/opt/hapi-tools`, backed by `./data/tools`. Claude Code,
+Codex, and the DeepSeek Harness source checkout live there, so updates survive
+restarts, container recreation, and image upgrades:
 
 ```bash
 docker compose exec hapi-runner \
@@ -91,11 +94,54 @@ Confirm the active versions:
 ```bash
 docker compose exec hapi-runner claude --version
 docker compose exec hapi-runner codex --version
+docker compose exec hapi-runner \
+  sh -lc 'cd /opt/hapi-tools/deepseek-harness && git describe --tags --always'
 ```
 
 With `CLAUDE_BOOTSTRAP_VERSION=latest` and `CODEX_BOOTSTRAP_VERSION=latest`, the
 entrypoint only installs missing tools; it does not downgrade manual updates.
 Setting an exact version in `.env` enforces that version on every restart.
+
+DeepSeek Harness is bootstrapped from `DSH_BOOTSTRAP_REPO` at
+`DSH_BOOTSTRAP_REF` only when `./data/tools/deepseek-harness` is missing. To
+upgrade it manually:
+
+```bash
+docker compose exec hapi-runner sh -lc '
+  cd /opt/hapi-tools/deepseek-harness
+  git fetch --tags
+  git checkout dsh-v0.1.1-rc.2
+  pnpm install --frozen-lockfile
+  pnpm run build
+'
+```
+
+The runner exports `HAPI_DSH_ACP_COMMAND=node` and points
+`HAPI_DSH_ACP_ARGS_JSON` at the built `dsh-acp-demo` bin plus the source
+checkout's `examples/acp-agent/cordis.yml`, so HAPI-created DeepSeek Harness
+sessions use the built source checkout without letting package-manager output
+touch the ACP stdout stream.
+
+## DeepSeek Harness Web UI
+
+Compose starts `deepseek-harness` alongside the HAPI runner. It runs
+`dsh web --no-open` inside the runner image and publishes it on
+`${DSH_WEB_BIND_ADDRESS}:${DSH_WEB_PORT}`. The default `.env.example` binds
+`0.0.0.0` on port `3080`; set `DSH_WEB_BIND_ADDRESS=127.0.0.1` to keep it
+loopback-only:
+
+```bash
+docker compose ps deepseek-harness
+docker compose logs -f deepseek-harness
+```
+
+Open `http://<docker-host>:${DSH_WEB_PORT}`. DSH intentionally keeps its server
+on loopback inside the container; the container uses a local TCP forwarder so
+Docker can publish the configured host bind address and port without asking DSH
+itself to bind every interface.
+`DSH_WEB_INTERNAL_PORT` is optional and only controls the private loopback port
+used inside the container. For a reverse proxy or a different browser host, set
+`DSH_WEB_TRUSTED_HOSTS` to a comma-separated list of `host:port` authorities.
 
 ## Authenticate
 
