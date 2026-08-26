@@ -7,7 +7,8 @@ FROM oven/bun:${BUN_VERSION}-debian AS build
 WORKDIR /src
 
 # Install dependencies before copying the source so dependency layers remain
-# reusable when application files change.
+# reusable when application files change. bunfig.toml controls the linker used
+# by the frozen lockfile, so it must be present in this layer.
 COPY package.json bun.lock bunfig.toml tsconfig.base.json ./
 COPY cli/package.json cli/package.json
 COPY docs/package.json docs/package.json
