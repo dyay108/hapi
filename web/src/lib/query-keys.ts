@@ -3,7 +3,6 @@ export const queryKeys = {
     session: (sessionId: string) => ['session', sessionId] as const,
     messages: (sessionId: string) => ['messages', sessionId] as const,
     machines: ['machines'] as const,
-    machineClaudeModels: (machineId: string) => ['machine-claude-models', machineId] as const,
     sqliteStorage: ['sqlite-storage'] as const,
     hubSettings: ['hub-settings'] as const,
     usageSummary: (range: string, timeZone: string) => ['usage-summary', range, timeZone] as const,
@@ -21,7 +20,6 @@ export const queryKeys = {
         staged ? 'staged' : 'unstaged'
     ] as const,
     slashCommands: (sessionId: string) => ['slash-commands', sessionId] as const,
-    sessionClaudeModels: (sessionId: string) => ['session-claude-models', sessionId] as const,
     sessionCursorModels: (sessionId: string) => ['session-cursor-models', sessionId] as const,
     sessionCursorChatStore: (sessionId: string) => ['session-cursor-chat-store', sessionId] as const,
     sessionPiModels: (sessionId: string) => ['session-pi-models', sessionId] as const,

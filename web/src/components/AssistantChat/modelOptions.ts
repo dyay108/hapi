@@ -48,31 +48,37 @@ function withCurrentModelOption(
     return nextOptions
 }
 
-/**
- * Claude models discovered on the machine arrive as `customOptions`. They are
- * merged with the static presets rather than replacing them: the catalog is
- * account-specific and does not list every alias Claude Code accepts, so a
- * straight swap would take working models away from the user.
- */
 function getClaudeModelOptions(currentModel?: string | null, customOptions?: ModelOption[]): ModelOption[] {
-    const catalog: ClaudeCatalogModel[] = []
-    for (const option of customOptions ?? []) {
-        // Keep `default`/`auto` entries here rather than filtering them out:
-        // mergeClaudeModelOptions drops them from the list anyway, but their
-        // description is what labels the composer's own Default option.
-        const value = option.value?.trim()
-        if (!value) {
-            continue
-        }
-        catalog.push({
-            value,
-            displayName: option.label,
-            ...(option.description ? { description: option.description } : {}),
-            ...(option.resolvedModel ? { resolvedModel: option.resolvedModel } : {})
-        })
+    if (!customOptions || customOptions.length === 0) {
+        return getClaudeComposerModelOptions(currentModel)
     }
 
-    return getClaudeComposerModelOptions(currentModel, catalog)
+    const options = getClaudeComposerModelOptions(currentModel)
+    const nextOptions = [...options]
+    let insertIndex = Math.max(1, nextOptions.findIndex((option) => option.value !== null))
+
+    for (const option of customOptions) {
+        const normalizedValue = normalizeCurrentModel(option.value)
+        if (!normalizedValue) {
+            continue
+        }
+
+        const existingIndex = nextOptions.findIndex((nextOption) => nextOption.value === normalizedValue)
+        if (existingIndex >= 0) {
+            if (nextOptions[existingIndex]?.label === normalizedValue) {
+                nextOptions[existingIndex] = option
+            }
+            continue
+        }
+
+        nextOptions.splice(insertIndex, 0, {
+            value: normalizedValue,
+            label: option.label
+        })
+        insertIndex += 1
+    }
+
+    return nextOptions
 }
 
 function getAgyModelOptions(currentModel?: string | null, customOptions?: ModelOption[]): ModelOption[] {

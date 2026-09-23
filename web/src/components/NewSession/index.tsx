@@ -2,12 +2,10 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, ty
 import type { ApiClient } from '@/api/client'
 import type { CodexDuplicateSessionGroup, CodexLocalSessionSummary, Machine, PiLocalSessionSummary } from '@/types/api'
 import type { CodexCollaborationMode, GrokPermissionMode, PermissionMode, CopilotAgentMode } from '@hapi/protocol'
-import { getClaudeDefaultModelDescription, mergeClaudeModelOptions } from '@hapi/protocol'
 import { codexModelAdvertisesFastTier } from '@/components/AssistantChat/codexFastMode'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useMachinePathsExists } from '@/hooks/useMachinePathsExists'
 import { useSpawnSession } from '@/hooks/mutations/useSpawnSession'
-import { useClaudeModels } from '@/hooks/queries/useClaudeModels'
 import { useCodexModels } from '@/hooks/queries/useCodexModels'
 import { useCursorModelsForMachine } from '@/hooks/queries/useCursorModelsForMachine'
 import { useAgyModels } from '@/hooks/queries/useAgyModels'
@@ -291,11 +289,6 @@ export function NewSession(props: {
         () => (machineId ? props.machines.find((machine) => machine.id === machineId) ?? null : null),
         [machineId, props.machines]
     )
-    const claudeModelsState = useClaudeModels({
-        api: props.api,
-        machineId,
-        enabled: agent === 'claude' && Boolean(machineId)
-    })
     const agentAvailability = useAgentAvailability({
         api: props.api,
         machineId,
@@ -330,24 +323,6 @@ export function NewSession(props: {
         () => formatRunnerSpawnError(selectedMachine),
         [selectedMachine]
     )
-    // Models discovered on the selected machine, unioned with the static presets
-    // so an unreachable machine or a failed probe never shrinks the list.
-    const claudeModelOptions = useMemo(() => ([
-        {
-            value: 'auto',
-            label: 'Default',
-            // Says what Default actually resolves to, e.g. "Sonnet 5 · Efficient
-            // for routine tasks" — otherwise the initial selection is unexplained.
-            ...(getClaudeDefaultModelDescription(claudeModelsState.models)
-                ? { description: getClaudeDefaultModelDescription(claudeModelsState.models)! }
-                : {})
-        },
-        ...mergeClaudeModelOptions(claudeModelsState.models, model).map((option) => ({
-            value: option.value,
-            label: option.label,
-            ...(option.description ? { description: option.description } : {})
-        }))
-    ]), [claudeModelsState.models, model])
     const codexModelOptions = useMemo(() => {
         const options = [{ value: 'auto', label: 'Default' }]
         for (const codexModel of codexModelsState.models) {
@@ -1950,9 +1925,7 @@ export function NewSession(props: {
                         agent={agent}
                         model={model}
                         options={
-                            agent === 'claude'
-                                ? claudeModelOptions
-                                : agent === 'codex'
+                            agent === 'codex'
                                 ? codexModelOptions
                                 : agent === 'grok'
                                     ? grokModelOptions
@@ -1964,7 +1937,6 @@ export function NewSession(props: {
                                                 ? (showPiLaunchConfig ? piModelOptions : undefined)
                                         : undefined
                         }
-                        allowCustomModel={agent === 'claude'}
                         isDisabled={
                             isFormDisabled
                             || (agent === 'codex' && Boolean(codexModelsState.error))

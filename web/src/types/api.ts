@@ -15,8 +15,6 @@ export type {
     AgentAvailabilityResponse,
     AgentAvailabilityEntry,
     AgyModelSummary,
-    ClaudeModelsResponse,
-    ClaudeModelSummary,
     CodexModelsResponse,
     CodexModelSummary,
     CommandResponse,

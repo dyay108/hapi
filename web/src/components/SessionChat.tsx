@@ -88,7 +88,6 @@ import { SessionStatusPanel } from '@/components/SessionStatusPanel'
 import { buildSessionStatusData } from '@/chat/sessionStatus'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
-import { useClaudeModels } from '@/hooks/queries/useClaudeModels'
 import { useCodexModels } from '@/hooks/queries/useCodexModels'
 import { useCursorModels } from '@/hooks/queries/useCursorModels'
 import { useCursorModelsForMachine } from '@/hooks/queries/useCursorModelsForMachine'
@@ -971,26 +970,6 @@ function SessionChatInner(props: SessionChatProps) {
     }, [agentFlavor, sessionId, sessionModel, queryClient])
     const controlledByUser = props.session.agentState?.controlledByUser === true && !props.session.metadata?.capabilities?.concurrentClients
     const codexCollaborationModeSupported = agentFlavor === 'codex' && !controlledByUser
-    const claudeModelsState = useClaudeModels({
-        api: props.api,
-        sessionId: props.session.id,
-        enabled: agentFlavor === 'claude' && props.session.active && !controlledByUser
-    })
-    // Discovered models only; getModelOptionsForFlavor unions them with the
-    // static presets, so an empty catalog (offline machine, probe failure, older
-    // CLI) simply leaves the preset list untouched.
-    const claudeModelOptions = useMemo(() => {
-        if (agentFlavor !== 'claude' || claudeModelsState.models.length === 0) {
-            return undefined
-        }
-
-        return claudeModelsState.models.map((claudeModel) => ({
-            value: claudeModel.value,
-            label: claudeModel.displayName,
-            ...(claudeModel.description ? { description: claudeModel.description } : {}),
-            ...(claudeModel.resolvedModel ? { resolvedModel: claudeModel.resolvedModel } : {})
-        }))
-    }, [agentFlavor, claudeModelsState.models])
     const codexModelsState = useCodexModels({
         api: props.api,
         sessionId: props.session.id,
@@ -2067,9 +2046,7 @@ function SessionChatInner(props: SessionChatProps) {
                         agentFlavor={agentFlavor}
                         concurrentClients={props.session.metadata?.capabilities?.concurrentClients}
                         availableModelOptions={
-                            agentFlavor === 'claude'
-                                ? claudeModelOptions
-                                : agentFlavor === 'codex'
+                            agentFlavor === 'codex'
                                 ? codexModelOptions
                                 : agentFlavor === 'cursor'
                                     ? (

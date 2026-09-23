@@ -33,7 +33,6 @@ import type {
 import type {
     AgyModelsResponse,
     AgentAvailabilityResponse,
-    ClaudeModelsResponse,
     CodexModelsResponse,
     CursorMigrateOutcome,
     CursorMigrateToAcpRequest,

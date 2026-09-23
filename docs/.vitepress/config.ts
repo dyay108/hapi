@@ -18,7 +18,7 @@ export default defineConfig({
     ],
 
     sidebar: [
-{
+      {
         text: 'Get Started',
         items: [
           { text: 'Quick Start', link: '/guide/quick-start' },

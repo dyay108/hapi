@@ -36,7 +36,6 @@ import {
     RpcGateway,
     RpcTargetMissingError,
     type FileSearchOptions,
-    type RpcClaudeModel,
     type RpcCodexModel,
     type RpcCommandResponse,
     type RpcDeleteUploadResponse,
@@ -44,7 +43,6 @@ import {
     type RpcListDirectoryResponse,
     type RpcStatFilesResponse,
     type RpcListAgyModelsResponse,
-    type RpcListClaudeModelsResponse,
     type RpcListPiModelsResponse,
     type RpcListCodexModelsResponse,
     type RpcListPiSessionsResponse,
@@ -74,7 +72,6 @@ export type { Session, SyncEvent } from '@hapi/protocol/types'
 export type { Machine } from './machineCache'
 export type { SyncEventListener } from './eventPublisher'
 export type {
-    RpcClaudeModel,
     RpcCodexModel,
     RpcCommandResponse,
     RpcDeleteUploadResponse,
@@ -82,7 +79,6 @@ export type {
     RpcListDirectoryResponse,
     RpcStatFilesResponse,
     RpcListAgyModelsResponse,
-    RpcListClaudeModelsResponse,
     RpcListPiModelsResponse,
     RpcListCodexModelsResponse,
     RpcListPiSessionsResponse,
