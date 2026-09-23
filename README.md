@@ -40,8 +40,6 @@ For self-hosted options (Cloudflare Tunnel, Tailscale), see [Installation](docs/
 
 ## Docs
 
-- [App](docs/guide/pwa.md)
-- [Docker](docs/guide/docker.md)
 - [Native apps (iOS / Android)](docs/guide/native-apps.md)
 - [Web / PWA](docs/guide/pwa.md)
 - [How it Works](docs/guide/how-it-works.md)
