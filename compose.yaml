@@ -60,6 +60,17 @@ services:
       CLI_API_TOKEN: ${CLI_API_TOKEN:?Run ./docker/setup.sh before starting HAPI}
       CLAUDE_BOOTSTRAP_VERSION: ${CLAUDE_BOOTSTRAP_VERSION:-latest}
       CODEX_BOOTSTRAP_VERSION: ${CODEX_BOOTSTRAP_VERSION:-latest}
+      DSH_ACP_BOOTSTRAP_VERSION: ${DSH_ACP_BOOTSTRAP_VERSION:-0.1.1-rc.2}
+      DSH_BOOTSTRAP_VERSION: ${DSH_BOOTSTRAP_VERSION:-skip}
+      DSH_HOME: /root/.dsh
+      # The composition is seeded to data/dsh/cordis.yml on first start and is
+      # yours to edit; its plugin tree is installed into data/tools/dsh-acp.
+      # Editing the composition reinstalls any plugins it newly references.
+      HAPI_DSH_ACP_CONFIG: ${HAPI_DSH_ACP_CONFIG:-/root/.dsh/cordis.yml}
+      DSH_WORKSPACE_ROOT: /workspace
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DSH_PERMISSION_MODE: ${DSH_PERMISSION_MODE:-}
+      HAPI_DSH_ACP_ARGS_JSON: ${HAPI_DSH_ACP_ARGS_JSON:-}
 
     volumes:
       - type: bind
@@ -83,6 +94,12 @@ services:
       - type: bind
         source: /root/.codex
         target: /root/.codex
+        bind:
+          create_host_path: false
+
+      - type: bind
+        source: ./data/dsh
+        target: /root/.dsh
         bind:
           create_host_path: false
 
