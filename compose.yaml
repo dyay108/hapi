@@ -1,0 +1,108 @@
+name: hapi
+
+services:
+  hapi-hub:
+    image: ${HAPI_HUB_IMAGE:-ghcr.io/dyay108/hapi-hub}:${HAPI_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: hub
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+
+    environment:
+      HOME: /root
+      HAPI_HOME: /root/.hapi
+      HAPI_LISTEN_HOST: 0.0.0.0
+      HAPI_LISTEN_PORT: 3006
+      HAPI_PUBLIC_URL: ${HAPI_PUBLIC_URL:-http://localhost:3006}
+      CLI_API_TOKEN: ${CLI_API_TOKEN:?Run ./docker/setup.sh before starting HAPI}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+
+    ports:
+      - "${HAPI_BIND_ADDRESS:-127.0.0.1}:${HAPI_PORT:-3006}:3006"
+
+    volumes:
+      - type: bind
+        source: ./data/hub
+        target: /root/.hapi
+        bind:
+          create_host_path: false
+
+    security_opt:
+      - no-new-privileges:true
+
+    command: ["hub", "--no-relay"]
+
+  hapi-runner:
+    image: ${HAPI_RUNNER_IMAGE:-ghcr.io/dyay108/hapi-runner}:${HAPI_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    hostname: ${HAPI_HOSTNAME:-vpslab}
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+
+    depends_on:
+      hapi-hub:
+        condition: service_healthy
+
+    environment:
+      HOME: /root
+      TERM: xterm-256color
+      HAPI_HOME: /root/.hapi
+      HAPI_API_URL: http://hapi-hub:3006
+      HAPI_HOSTNAME: ${HAPI_HOSTNAME:-vpslab}
+      HAPI_DISABLE_VERSION_HANDOFF: "1"
+      CLI_API_TOKEN: ${CLI_API_TOKEN:?Run ./docker/setup.sh before starting HAPI}
+      CLAUDE_BOOTSTRAP_VERSION: ${CLAUDE_BOOTSTRAP_VERSION:-latest}
+      CODEX_BOOTSTRAP_VERSION: ${CODEX_BOOTSTRAP_VERSION:-latest}
+
+    volumes:
+      - type: bind
+        source: ./data/runner
+        target: /root/.hapi
+        bind:
+          create_host_path: false
+
+      - type: bind
+        source: ./data/tools
+        target: /opt/hapi-tools
+        bind:
+          create_host_path: false
+
+      - type: bind
+        source: /root/.claude
+        target: /root/.claude
+        bind:
+          create_host_path: false
+
+      - type: bind
+        source: /root/.codex
+        target: /root/.codex
+        bind:
+          create_host_path: false
+
+      - type: bind
+        source: /root/projects
+        target: /workspace
+        bind:
+          create_host_path: false
+
+      # Use a dedicated deploy-key directory instead of exposing all host SSH
+      # credentials to remotely controlled coding sessions.
+      - type: bind
+        source: ./data/ssh
+        target: /root/.ssh
+        read_only: true
+        bind:
+          create_host_path: false
+
+    security_opt:
+      - no-new-privileges:true
+
+    command: ["hapi", "runner", "start-sync", "--workspace-root", "/workspace"]
+
