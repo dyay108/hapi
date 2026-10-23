@@ -63,8 +63,13 @@ services:
       DSH_BOOTSTRAP_VERSION: ${DSH_BOOTSTRAP_VERSION:-0.2.1-rc.2}
       # `dsh --profile acp` initializes its profile under DSH_HOME on first use;
       # the bind mount keeps profile config and session state across recreation.
+      # dsh is required for the ACP server, so `skip` is not supported.
       DSH_HOME: /root/.dsh
       DSH_WORKSPACE_ROOT: /workspace
+      # Keep this value quoted so Compose passes a valid JSON array; Docker's
+      # ENV parser strips quotes from image-level JSON values.
+      HAPI_DSH_ACP_COMMAND: /opt/hapi-tools/bin/dsh
+      HAPI_DSH_ACP_ARGS_JSON: '["--profile","acp"]'
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DSH_PERMISSION_MODE: ${DSH_PERMISSION_MODE:-}
 

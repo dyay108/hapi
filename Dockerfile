@@ -120,7 +120,8 @@ COPY --chmod=755 docker/runner-entrypoint.sh /usr/local/bin/hapi-runner-entrypoi
 # Agent CLIs are installed at first start into
 # /opt/hapi-tools. Compose bind-mounts that path, so manual upgrades survive
 # container recreation and image upgrades. DSH's ACP server is the `dsh` CLI's
-# built-in `acp` profile.
+# built-in `acp` profile. The entrypoint supplies HAPI_DSH_ACP_ARGS_JSON because
+# Docker's ENV parser strips the quotes from a JSON value.
 ENV HOME=/root \
     HAPI_HOME=/root/.hapi \
     HAPI_API_URL=http://hapi-hub:3006 \
@@ -133,8 +134,7 @@ ENV HOME=/root \
     DSH_BOOTSTRAP_VERSION=0.2.1-rc.2 \
     DSH_HOME=/root/.dsh \
     DSH_WORKSPACE_ROOT=/workspace \
-    HAPI_DSH_ACP_COMMAND=/opt/hapi-tools/bin/dsh \
-    HAPI_DSH_ACP_ARGS_JSON=["--profile","acp"]
+    HAPI_DSH_ACP_COMMAND=/opt/hapi-tools/bin/dsh
 
 RUN mkdir -p \
         /opt/hapi-tools \
