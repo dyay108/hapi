@@ -162,27 +162,35 @@ environment automatically.
 
 See `src/configuration.ts` for all options.
 
-DeepSeek Harness ACP uses `dsh-acp-demo` by default. Override the executable or
-its arguments without shell parsing:
+DeepSeek Harness ACP uses the `dsh` CLI's built-in `acp` profile by default.
+Install the launcher with an exact version:
 
 ```bash
-export HAPI_DSH_ACP_COMMAND=dsh-acp-demo
-export HAPI_DSH_ACP_CONFIG=/path/to/deepseek-harness/examples/acp-agent/cordis.yml
+npm install -g @deepseek-ai/dsh@0.2.1-rc.2
 hapi dsh
 ```
 
+Override the executable or its arguments without shell parsing:
+
+```bash
+export HAPI_DSH_ACP_COMMAND=/opt/hapi-tools/bin/dsh
+export HAPI_DSH_ACP_ARGS_JSON='["--profile","acp"]'
+hapi dsh
+```
+
+For a custom ACP server that accepts `--config`, set `HAPI_DSH_ACP_CONFIG`.
 For a source checkout, use JSON arguments:
 
 ```bash
 export HAPI_DSH_ACP_COMMAND=pnpm
-export HAPI_DSH_ACP_ARGS_JSON='["--dir", "/path/to/deepseek-harness", "run", "demo:acp"]'
+export HAPI_DSH_ACP_ARGS_JSON='["--dir", "/path/to/deepseek-harness", "dsh", "--profile", "acp"]'
 ```
 
-The official ACP demo is fresh-session-only and does not support native resume,
-model switching, MCP injection, or live tool/reasoning telemetry. HAPI uses the
-standard chat and pending one-shot permission surfaces; the ACP composition
-owns the overall permission policy and HAPI does not advertise resume or model
-controls for DSH.
+HAPI currently treats DSH sessions as fresh-session-only and does not support
+native resume, model switching, MCP injection, or live tool/reasoning telemetry.
+HAPI uses the standard chat and pending one-shot permission surfaces; the DSH
+profile owns the overall permission policy and HAPI does not advertise resume
+or model controls for DSH.
 
 ### Required
 
@@ -195,9 +203,9 @@ controls for DSH.
 - `HAPI_EXPERIMENTAL` - Enable experimental features (true/1/yes).
 - `HAPI_EXTRA_HEADERS_JSON` - JSON object of extra headers to send on CLI → hub requests, e.g. `{"Cookie":"CF_Authorization=..."}`. Can also be set as the `extraHeaders` object in `~/.hapi/settings.json` (environment variable wins).
 - `HAPI_CLAUDE_PATH` - Path to a specific `claude` executable.
-- `HAPI_DSH_ACP_COMMAND` - ACP server executable for `hapi dsh` (default: `dsh-acp-demo`).
-- `HAPI_DSH_ACP_CONFIG` - Optional `dsh-acp-demo --config` path.
-- `HAPI_DSH_ACP_ARGS_JSON` - Optional JSON array of ACP server arguments.
+- `HAPI_DSH_ACP_COMMAND` - ACP server executable for `hapi dsh` (default: `dsh`).
+- `HAPI_DSH_ACP_CONFIG` - Optional `--config` path for a custom ACP server.
+- `HAPI_DSH_ACP_ARGS_JSON` - Optional JSON array of ACP server arguments (default: `["--profile","acp"]` for `dsh`).
 - `HAPI_HTTP_MCP_URL` - Default MCP target for `hapi mcp`.
 
 ### Runner

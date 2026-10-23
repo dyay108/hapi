@@ -91,7 +91,7 @@ describe('agent executable resolution', () => {
 
     it('rejects malformed or missing DSH static configuration', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'hapi-agent-path-'))
-        await makeExecutable(directory, 'dsh-acp-demo')
+        await makeExecutable(directory, 'dsh')
         expect(getAgentAvailability('dsh', {
             PATH: directory,
             HAPI_DSH_ACP_ARGS_JSON: 'not json',

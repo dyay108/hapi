@@ -2,17 +2,35 @@ import { describe, expect, it } from 'vitest'
 import { resolveDshAcpCommand } from './dshBackend'
 
 describe('resolveDshAcpCommand', () => {
-    it('uses the official ACP demo executable by default', () => {
+    it('uses the dsh CLI with its built-in acp profile by default', () => {
         expect(resolveDshAcpCommand({})).toEqual({
-            command: 'dsh-acp-demo',
-            args: []
+            command: 'dsh',
+            args: ['--profile', 'acp']
         })
     })
 
-    it('supports a config path for dsh-acp-demo', () => {
+    it('supports a legacy config path for custom ACP servers', () => {
         expect(resolveDshAcpCommand({ HAPI_DSH_ACP_CONFIG: '/tmp/cordis.yml' })).toEqual({
-            command: 'dsh-acp-demo',
+            command: 'dsh',
             args: ['--config', '/tmp/cordis.yml']
+        })
+    })
+
+    it('selects the acp profile for an explicit dsh executable path', () => {
+        expect(resolveDshAcpCommand({
+            HAPI_DSH_ACP_COMMAND: '/opt/hapi-tools/bin/dsh'
+        })).toEqual({
+            command: '/opt/hapi-tools/bin/dsh',
+            args: ['--profile', 'acp']
+        })
+    })
+
+    it('does not add dsh profile arguments to a custom ACP executable', () => {
+        expect(resolveDshAcpCommand({
+            HAPI_DSH_ACP_COMMAND: 'my-acp-server'
+        })).toEqual({
+            command: 'my-acp-server',
+            args: []
         })
     })
 

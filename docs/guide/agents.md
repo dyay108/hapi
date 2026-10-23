@@ -19,7 +19,7 @@ agent's integration; their supported syntax varies by agent.
 | GitHub Copilot | `hapi copilot` | ACP (`copilot --acp --stdio`) | ✓ | ✓ | `default` `read-only` `safe-yolo` `yolo` | ✓ |
 | Kimi | `hapi kimi` | ACP (`kimi acp`) | ✓ | ✓ | `default` `read-only` `safe-yolo` `yolo` | ✓ |
 | OpenCode | `hapi opencode` | ACP (`opencode acp`) | ✓ | ✓ | `default` `plan` `yolo` | ✓ |
-| DeepSeek Harness | `hapi dsh` | ACP (`dsh-acp-demo` or configured server) | — | ✓ | Managed by DSH ACP composition | — |
+| DeepSeek Harness | `hapi dsh` | ACP (`dsh --profile acp` or configured server) | — | ✓ | Managed by DSH `acp` profile | — |
 | Antigravity (agy) | `hapi agy` | Headless print mode (per-turn `agy -p` + NDJSON) | — | ✓ | `request-review` `always-proceed` | ✓ |
 | Pi | `hapi pi` | `pi --mode rpc` (JSON-line RPC over stdio) | — | ✓ | none (always auto-approve) | ✓ |
 | Gemini CLI | — | **Removed** — Google sunset the consumer Gemini CLI (2026-06-18) | — | — | — | — |
@@ -256,31 +256,31 @@ If a remote session reports authentication failure, run `grok login --device-aut
 ## DeepSeek Harness
 
 `hapi dsh` uses the shared ACP transport and keeps DSH's runtime outside HAPI. The
-default executable is `dsh-acp-demo`; configure a different ACP server or a
-source checkout with `HAPI_DSH_ACP_COMMAND`, `HAPI_DSH_ACP_CONFIG`, or the JSON
-argument array `HAPI_DSH_ACP_ARGS_JSON`.
+default executable is `dsh`, launched with its built-in `acp` profile; configure
+a different ACP server or a source checkout with `HAPI_DSH_ACP_COMMAND`,
+`HAPI_DSH_ACP_CONFIG`, or the JSON argument array `HAPI_DSH_ACP_ARGS_JSON`.
 
-The official demo is published as `@deepseek-ai/dsh-acp-demo`; use an exact
-version such as `0.1.0-rc.7` rather than npm's stale `latest` tag:
-
-```bash
-npm install -g @deepseek-ai/dsh-acp-demo@0.1.0-rc.7
-```
-
-A published package still needs a DSH Cordis composition/config. A source
-checkout can be launched directly:
+The launcher is published as `@deepseek-ai/dsh`; use an exact version such as
+`0.2.1-rc.2`:
 
 ```bash
-export HAPI_DSH_ACP_COMMAND=pnpm
-export HAPI_DSH_ACP_ARGS_JSON='["--dir", "/path/to/deepseek-harness", "run", "demo:acp"]'
+npm install -g @deepseek-ai/dsh@0.2.1-rc.2
 hapi dsh
 ```
 
-DSH sessions are remote-only and fresh-session-only. HAPI does not inject MCP
-servers or expose model/effort pickers because the official ACP contract leaves
-those surfaces to the DSH composition. Pending one-shot permission requests
-remain answerable in the standard HAPI UI, but the ACP composition owns the
-overall permission policy.
+The `acp` profile initializes under `$DSH_HOME/profiles/acp` on first use. A
+source checkout can be launched directly:
+
+```bash
+export HAPI_DSH_ACP_COMMAND=pnpm
+export HAPI_DSH_ACP_ARGS_JSON='["--dir", "/path/to/deepseek-harness", "dsh", "--profile", "acp"]'
+hapi dsh
+```
+
+DSH sessions are remote-only and fresh-session-only in HAPI. HAPI does not inject
+MCP servers or expose model/effort pickers because those surfaces belong to the
+DSH `acp` profile. Pending one-shot permission requests remain answerable in the
+standard HAPI UI, but the profile owns the overall permission policy.
 
 ## Other agents
 

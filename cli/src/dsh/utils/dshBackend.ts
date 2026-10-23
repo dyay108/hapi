@@ -25,12 +25,18 @@ export function resolveDshAcpCommand(env: DshAcpEnvironment = process.env): {
     command: string
     args: string[]
 } {
-    const command = env.HAPI_DSH_ACP_COMMAND?.trim() || 'dsh-acp-demo'
+    const command = env.HAPI_DSH_ACP_COMMAND?.trim() || 'dsh'
     if (env.HAPI_DSH_ACP_ARGS_JSON?.trim()) {
         return { command, args: parseArgsJson(env.HAPI_DSH_ACP_ARGS_JSON.trim()) }
     }
     const config = env.HAPI_DSH_ACP_CONFIG?.trim()
-    return { command, args: config ? ['--config', config] : [] }
+    if (config) return { command, args: ['--config', config] }
+    return { command, args: isDshCli(command) ? ['--profile', 'acp'] : [] }
+}
+
+function isDshCli(command: string): boolean {
+    const executable = command.split(/[\\/]/).pop() ?? command
+    return /^dsh(\.(cmd|exe|bat))?$/i.test(executable)
 }
 
 export function createDshBackend(env: NodeJS.ProcessEnv = process.env): AcpSdkBackend {

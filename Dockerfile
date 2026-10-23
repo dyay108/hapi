@@ -116,13 +116,11 @@ RUN apt-get update \
 
 COPY --from=build /out/hapi /usr/local/bin/hapi
 COPY --chmod=755 docker/runner-entrypoint.sh /usr/local/bin/hapi-runner-entrypoint
-# Seed composition for the DeepSeek Harness ACP server. The entrypoint copies it
-# into the persisted DSH ACP root on first start and never overwrites an edit.
-COPY docker/dsh/cordis.yml /opt/hapi-dsh/cordis.yml
 
 # Agent CLIs are installed at first start into
 # /opt/hapi-tools. Compose bind-mounts that path, so manual upgrades survive
-# container recreation and image upgrades.
+# container recreation and image upgrades. DSH's ACP server is the `dsh` CLI's
+# built-in `acp` profile.
 ENV HOME=/root \
     HAPI_HOME=/root/.hapi \
     HAPI_API_URL=http://hapi-hub:3006 \
@@ -132,13 +130,11 @@ ENV HOME=/root \
     PATH=/opt/hapi-tools/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin \
     CLAUDE_BOOTSTRAP_VERSION=latest \
     CODEX_BOOTSTRAP_VERSION=latest \
-    DSH_ACP_BOOTSTRAP_VERSION=0.1.1-rc.2 \
-    DSH_BOOTSTRAP_VERSION=skip \
+    DSH_BOOTSTRAP_VERSION=0.2.1-rc.2 \
     DSH_HOME=/root/.dsh \
-    DSH_ACP_ROOT=/opt/hapi-tools/dsh-acp \
     DSH_WORKSPACE_ROOT=/workspace \
-    HAPI_DSH_ACP_COMMAND=/opt/hapi-tools/dsh-acp/node_modules/.bin/dsh-acp-demo \
-    HAPI_DSH_ACP_CONFIG=/root/.dsh/cordis.yml
+    HAPI_DSH_ACP_COMMAND=/opt/hapi-tools/bin/dsh \
+    HAPI_DSH_ACP_ARGS_JSON=["--profile","acp"]
 
 RUN mkdir -p \
         /opt/hapi-tools \
