@@ -9,6 +9,10 @@ import {
     SessionSchema
 } from './schemas'
 import { AgentFlavorSchema } from './modes'
+import {
+    PeerSpawnDefaultsSchema,
+    ResolvedPeerSpawnDefaultsSchema
+} from './peerSpawnDefaults'
 import type {
     DecryptedMessage,
     Machine,
@@ -73,7 +77,8 @@ export type CreateSessionResponse = z.infer<typeof CreateSessionResponseSchema>
 export const HubSettingsResponseSchema = z.object({
     sessionSummaryContract: z.boolean(),
     /** Show compact AGENT_NOTIFY_SUMMARY in chat (default off / hide). */
-    sessionSummaryInChat: z.boolean()
+    sessionSummaryInChat: z.boolean(),
+    peerSpawnDefaults: ResolvedPeerSpawnDefaultsSchema
 })
 
 export type HubSettingsResponse = z.infer<typeof HubSettingsResponseSchema>
@@ -81,10 +86,14 @@ export type HubSettingsResponse = z.infer<typeof HubSettingsResponseSchema>
 export const UpdateHubSettingsRequestSchema = z
     .object({
         sessionSummaryContract: z.boolean().optional(),
-        sessionSummaryInChat: z.boolean().optional()
+        sessionSummaryInChat: z.boolean().optional(),
+        peerSpawnDefaults: PeerSpawnDefaultsSchema.optional()
     })
     .refine(
-        (data) => data.sessionSummaryContract !== undefined || data.sessionSummaryInChat !== undefined,
+        (data) =>
+            data.sessionSummaryContract !== undefined
+            || data.sessionSummaryInChat !== undefined
+            || data.peerSpawnDefaults !== undefined,
         { message: 'At least one hub setting field is required' }
     )
 
@@ -121,10 +130,34 @@ export type AuthResponse = {
 }
 
 export type SessionsResponse = { sessions: SessionSummary[] }
+export type SessionContentMatch = {
+    messageId: string
+    role: 'user' | 'assistant'
+    seq: number
+    createdAt: number
+    snippet: string
+    truncated: boolean
+}
+export type SessionContentSearchResponse = {
+    results: Array<{
+        session: SessionSummary
+        match: SessionContentMatch
+    }>
+    /** True when this query may miss content omitted by an indexing optimization. */
+    hasPotentiallyIncompleteResults: boolean
+}
+export type SessionContentMatchesResponse = {
+    matches: SessionContentMatch[]
+    total: number
+    /** True when this query may miss content omitted by an indexing optimization. */
+    hasPotentiallyIncompleteResults: boolean
+}
 export type SessionResponse = { session: Session }
 export type MessagesResponse = {
     messages: DecryptedMessage[]
     page: {
+        /** Readable revision covered by this tail snapshot; absent on history pages. */
+        readThroughRevision?: number
         direction: 'latest' | 'before' | 'after'
         limit: number
         epoch: number
@@ -133,6 +166,20 @@ export type MessagesResponse = {
         nextBeforeAt: number | null
         nextAfterSeq: number | null
         nextAfterAt: number | null
+        snapshotHeadSeq: number | null
+        snapshotHeadAt: number | null
+        hasMore: boolean
+    }
+}
+
+/** A bounded history window centered on a message selected from search results. */
+export type MessageContextResponse = {
+    messages: DecryptedMessage[]
+    targetMessageId: string
+    page: {
+        epoch: number
+        nextBeforeSeq: number | null
+        nextBeforeAt: number | null
         snapshotHeadSeq: number | null
         snapshotHeadAt: number | null
         hasMore: boolean
@@ -180,7 +227,8 @@ export type ReopenSessionMissingMetadataResponse = z.infer<typeof ReopenSessionM
 
 export const CursorChatStoreStatusSchema = z.object({
     onDisk: z.boolean(),
-    store: z.enum(['legacy', 'acp']).nullable()
+    // 'empty': ACP thread dir exists but no store.db, i.e. no chat was ever persisted.
+    store: z.enum(['legacy', 'acp', 'empty']).nullable()
 })
 
 export type CursorChatStoreStatus = z.infer<typeof CursorChatStoreStatusSchema>
@@ -287,6 +335,46 @@ export type PiLocalSessionWithMessages = z.infer<typeof PiLocalSessionWithMessag
 export type ListPiSessionsRpcRequest = z.infer<typeof ListPiSessionsRpcRequestSchema>
 export type ListPiSessionsRpcResponse = z.infer<typeof ListPiSessionsRpcResponseSchema>
 
+export const OpencodeImportedMessageContentSchema = CodexImportedMessageSchema
+
+export const OpencodeImportedMessageSchema = z.object({
+    localId: z.string().min(1),
+    createdAt: z.number(),
+    content: OpencodeImportedMessageContentSchema
+})
+
+export const OpencodeLocalSessionSummarySchema = z.object({
+    id: z.string().min(1),
+    title: z.string(),
+    lastUserMessage: z.string().nullable().optional(),
+    cwd: z.string().nullable().optional(),
+    file: z.string().min(1),
+    modifiedAt: z.number()
+})
+
+export const OpencodeLocalSessionWithMessagesSchema = OpencodeLocalSessionSummarySchema.extend({
+    messages: z.array(OpencodeImportedMessageSchema)
+})
+
+export const MAX_OPENCODE_SESSION_IMPORTS = 200
+
+export const ListOpencodeSessionsRpcRequestSchema = z.object({
+    cwd: z.string().nullable().optional(),
+    sessionIds: z.array(z.string().min(1)).max(MAX_OPENCODE_SESSION_IMPORTS).optional()
+})
+
+export const ListOpencodeSessionsRpcResponseSchema = z.union([
+    z.object({ success: z.literal(true), sessions: z.array(z.union([OpencodeLocalSessionWithMessagesSchema, OpencodeLocalSessionSummarySchema])) }),
+    z.object({ success: z.literal(false), error: z.string() })
+])
+
+export type OpencodeImportedMessageContent = z.infer<typeof OpencodeImportedMessageContentSchema>
+export type OpencodeImportedMessage = z.infer<typeof OpencodeImportedMessageSchema>
+export type OpencodeLocalSessionSummary = z.infer<typeof OpencodeLocalSessionSummarySchema>
+export type OpencodeLocalSessionWithMessages = z.infer<typeof OpencodeLocalSessionWithMessagesSchema>
+export type ListOpencodeSessionsRpcRequest = z.infer<typeof ListOpencodeSessionsRpcRequestSchema>
+export type ListOpencodeSessionsRpcResponse = z.infer<typeof ListOpencodeSessionsRpcResponseSchema>
+
 export const SessionCollaborationModeRequestSchema = z.object({
     mode: CodexCollaborationModeSchema
 })
@@ -306,7 +394,9 @@ export const SessionModelRequestSchema = z.object({
             provider: z.string().trim().min(1),
             modelId: z.string().trim().min(1),
         }),
-    ]).nullable()
+    ]).nullable(),
+    /** Effort to apply together with the model, e.g. cleared when the new model does not offer it. */
+    effort: z.string().trim().min(1).nullable().optional()
 })
 
 export type SessionModelRequest = z.infer<typeof SessionModelRequestSchema>
@@ -333,14 +423,21 @@ export const SessionServiceTierRequestSchema = z.object({
 
 export type SessionServiceTierRequest = z.infer<typeof SessionServiceTierRequestSchema>
 
+/** Hub session display-name ceiling (`PATCH /api/sessions/:id`). */
+export const SESSION_NAME_MAX_LENGTH = 255
+
 export const RenameSessionRequestSchema = z.object({
-    name: z.string().min(1).max(255)
+    name: z.string().min(1).max(SESSION_NAME_MAX_LENGTH).optional(),
+    titleLocked: z.boolean().optional()
+}).refine(value => value.name !== undefined || value.titleLocked !== undefined, {
+    message: 'name or titleLocked is required'
 })
 
 export type RenameSessionRequest = z.infer<typeof RenameSessionRequestSchema>
 
 export const UpdateSessionSummaryRequestSchema = z.object({
-    text: z.string().trim().min(1).max(255)
+    text: z.string().trim().min(1).max(255),
+    titleLocked: z.boolean().optional()
 })
 
 export type UpdateSessionSummaryRequest = z.infer<typeof UpdateSessionSummaryRequestSchema>
@@ -562,8 +659,9 @@ export const SendMessageRequestSchema = z.object({
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>
 
 export const ForkConversationRequestSchema = z.object({
-    messageLocalId: z.string().min(1).optional()
-})
+    messageLocalId: z.string().min(1).optional(),
+    latestCompleted: z.boolean().optional()
+}).refine(value => !(value.messageLocalId && value.latestCompleted), { message: 'Choose one fork boundary mode' })
 
 export type ForkConversationRequest = z.infer<typeof ForkConversationRequestSchema>
 
@@ -595,12 +693,30 @@ export type RewindConversationResponse = {
 
 /** CLI → hub RPC result for native fork (before HAPI child binding). */
 export type ForkConversationRpcResult = {
+    completedTurnId?: string
     nativeSessionId: string
     /** Shared runtimes bind the child themselves; hub must not spawn another engine. */
     sessionId?: string
     /** When true, hub must spawn with --fork-session (Claude). */
     forkSession?: boolean
 }
+
+/** Raw RPC response, including generic serialized handler failures. */
+export type ForkConversationRpcResponse = ForkConversationRpcResult | {
+    /** Serialized CLI handler failure returned through the generic RPC layer. */
+    error: string
+}
+
+/** Machine-scoped native history operation; never sends a source prompt. */
+export const ForkArchivedCodexRequestSchema = z.object({
+    operationId: z.string().uuid(),
+    sourceSessionId: z.string().uuid(),
+    sourceThreadId: z.string().min(1),
+    directory: z.string().min(1),
+    boundary: z.object({ localId: z.string().min(1), turnId: z.string().min(1) }).optional()
+})
+export type ForkArchivedCodexRequest = z.infer<typeof ForkArchivedCodexRequestSchema>
+export type ForkArchivedCodexResponse = { nativeSessionId: string } | { error: string; rollbackSafe: boolean }
 
 export type RewindConversationErrorCode =
     | 'ambiguous_native_boundary'
@@ -633,6 +749,8 @@ export type QueuedStateRequest = z.infer<typeof QueuedStateRequestSchema>
 export type QueuedStateResponse = {
     queuedLocalIds: string[]
     indeterminateLocalIds?: string[]
+    /** Subset of indeterminateLocalIds still awaiting delivery confirmation. */
+    dispatchingLocalIds?: string[]
     invokedLocalMessages: Array<{
         localId: string
         invokedAt: number
@@ -684,6 +802,66 @@ export const AgentAvailabilityResponseSchema = z.object({
     agents: z.array(AgentAvailabilityEntrySchema)
 })
 export type AgentAvailabilityResponse = z.infer<typeof AgentAvailabilityResponseSchema>
+
+export const AgentQuotaStatusSchema = z.enum([
+    'ok',
+    'custom_provider',
+    'unauthenticated',
+    'unavailable',
+    'error'
+])
+export type AgentQuotaStatus = z.infer<typeof AgentQuotaStatusSchema>
+
+export const AgentQuotaBucketSchema = z.object({
+    id: z.string(),
+    label: z.string(),
+    group: z.string().nullable().optional(),
+    window: z.string().nullable().optional(),
+    usedPercent: z.number().min(0).max(100),
+    remainingPercent: z.number().min(0).max(100),
+    resetsAt: z.number().nullable().optional()
+})
+export type AgentQuotaBucket = z.infer<typeof AgentQuotaBucketSchema>
+
+export const AgentQuotaAccountSchema = z.object({
+    agent: AgentFlavorSchema,
+    available: z.boolean(),
+    status: AgentQuotaStatusSchema,
+    accountLabel: z.string().nullable().optional(),
+    planLabel: z.string().nullable().optional(),
+    creditsLabel: z.string().nullable().optional(),
+    buckets: z.array(AgentQuotaBucketSchema),
+    note: z.string().nullable().optional(),
+    updatedAt: z.number()
+})
+export type AgentQuotaAccount = z.infer<typeof AgentQuotaAccountSchema>
+
+export const AgentQuotasRequestSchema = z.object({
+    refresh: z.boolean().optional()
+})
+export type AgentQuotasRequest = z.infer<typeof AgentQuotasRequestSchema>
+
+export const AgentQuotasResponseSchema = z.object({
+    accounts: z.array(AgentQuotaAccountSchema),
+    fetchedAt: z.number()
+})
+export type AgentQuotasResponse = z.infer<typeof AgentQuotasResponseSchema>
+
+export const UsageMachineQuotasEntrySchema = z.object({
+    machineId: z.string(),
+    machineName: z.string(),
+    supported: z.boolean(),
+    accounts: z.array(AgentQuotaAccountSchema),
+    fetchedAt: z.number().nullable(),
+    error: z.string().optional()
+})
+export type UsageMachineQuotasEntry = z.infer<typeof UsageMachineQuotasEntrySchema>
+
+export const UsageQuotasResponseSchema = z.object({
+    machines: z.array(UsageMachineQuotasEntrySchema),
+    updatedAt: z.number()
+})
+export type UsageQuotasResponse = z.infer<typeof UsageQuotasResponseSchema>
 
 export const AuthRequestSchema = z.union([
     z.object({ initData: z.string() }),
@@ -746,6 +924,7 @@ export type RpcListDirectoryResponse = ListDirectoryResponse
 
 export type FileMetadataEntry = {
     path: string
+    type?: 'file' | 'directory' | 'other'
     size?: number
     modified?: number
 }
@@ -773,6 +952,50 @@ export type PathExistsResponse = {
 }
 
 export type MachinePathsExistsResponse = PathExistsResponse
+
+/** Requests served by the long-lived runner for archived-session file access. */
+export type WorkspaceReadFileRequest = {
+    cwd: string
+    path: string
+    maxBytes?: number
+}
+
+export type WorkspaceListDirectoryRequest = {
+    cwd: string
+    path?: string
+}
+
+export type WorkspaceStatFilesRequest = {
+    cwd: string
+    paths: string[]
+}
+
+export type WorkspaceGitStatusRequest = {
+    cwd: string
+    timeout?: number
+}
+
+export type WorkspaceGitDiffNumstatRequest = {
+    cwd: string
+    staged?: boolean
+    timeout?: number
+}
+
+export type WorkspaceGitDiffFileRequest = {
+    cwd: string
+    filePath: string
+    staged?: boolean
+    timeout?: number
+}
+
+export type WorkspaceRipgrepRequest = {
+    cwd: string
+    args: string[]
+    fileSearch?: {
+        query: string
+        limit: number
+    }
+}
 
 export type CodexModelSummary = {
     id: string
@@ -821,6 +1044,24 @@ export type GrokModelSummary = {
     name?: string
     reasoningEfforts?: GrokReasoningEffortOption[]
 }
+
+export type DshModelSummary = {
+    modelId: string
+    name?: string
+}
+
+/**
+ * DeepSeek Harness model discovery. Model ids are opaque ACP config-option
+ * values — for dsh 0.2.x they are JSON-encoded `["provider","model"]` tuples —
+ * and must be sent back verbatim when switching.
+ */
+export type DshModelsResponse = {
+    success: boolean
+    availableModels?: DshModelSummary[]
+    currentModelId?: string | null
+    error?: string
+}
+export type ListDshModelsResponse = DshModelsResponse
 
 export type GrokReasoningEffortOption = {
     value: string
@@ -873,6 +1114,12 @@ export type GrokReasoningEffortResponse = {
     currentValue?: string | null
     error?: string
 }
+
+/** Copilot's ACP `thought_level` option for the active model. */
+export type CopilotReasoningEffortResponse = GrokReasoningEffortResponse
+
+/** Kimi's ACP `thought_level` (`thinking`) option for the active model. */
+export type KimiReasoningEffortResponse = GrokReasoningEffortResponse
 
 export type OpencodeReasoningEffortOption = {
     value: string
@@ -941,6 +1188,21 @@ export type PiModelsResponse = {
 
 export type ListPiModelsResponse = PiModelsResponse
 
+/** One row of the `claude` CLI's own model picker, as reported by its `initialize` control response. */
+export type ClaudeModelSummary = {
+    /** What `claude --model` accepts: an alias that follows the family (`opus`) or a full model id. */
+    value: string
+    displayName?: string
+    /** Effort levels the model accepts: `[]` = no effort control, undefined = unknown. */
+    effortLevels?: string[]
+}
+
+export type ClaudeModelsResponse = {
+    success: boolean
+    availableModels?: ClaudeModelSummary[]
+    error?: string
+}
+
 export type PiCommandSummary = {
     name: string
     description?: string
@@ -1005,4 +1267,44 @@ export type UsageSummaryResponse = {
     byAgent: UsageSummaryBucket[]
     byModel: UsageSummaryBucket[]
     updatedAt: number
+}
+
+/** A stretch an agent was working: from `thinking` turning on to it turning
+ *  off. `end` is null while the turn is still going. */
+export type AgentActivityTurn = {
+    start: number
+    end: number | null
+    endReason: 'idle' | 'session_end' | 'expired' | 'hub_restart' | null
+    startedBy: 'hub_prompt' | 'agent' | 'patch'
+}
+
+/** The agent waiting on the user inside a turn: a permission prompt or a
+ *  question. `end` is null while it is still waiting. */
+export type AgentActivityWait = {
+    start: number
+    end: number | null
+    kind: 'permission' | 'input'
+    tool: string
+}
+
+export type AgentActivitySession = {
+    id: string
+    flavor: string | null
+    /** The agent's own session id (Claude session, Codex thread, ...). */
+    agentSessionId: string | null
+    machineId: string | null
+    host: string | null
+    machineName: string | null
+    path: string | null
+    title: string | null
+    turns: AgentActivityTurn[]
+    waits: AgentActivityWait[]
+}
+
+/** GET /api/activity: when agents in the caller's namespace were working. */
+export type AgentActivityResponse = {
+    since: number
+    until: number
+    generatedAt: number
+    sessions: AgentActivitySession[]
 }

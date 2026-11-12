@@ -85,8 +85,19 @@ function attachCodexRoundSummaryToLatestGroup(blocks: ChatBlock[], summary: Roun
         && block.kind !== 'agent-event'
         && !(block.kind === 'cli-output' && block.source === 'user')
 
+    let targetIndex = summary.turnId
+        ? blocks.findLastIndex(block => isSummaryTarget(block) && isObject(block.meta) && block.meta.codexTurnId === summary.turnId)
+        : blocks.length - 1
+    // Persisted replies from earlier versions have no native turn IDs.
+    if (targetIndex === -1 && summary.usage) {
+        for (let index = blocks.length - 1; index >= 0 && isSummaryTarget(blocks[index]); index -= 1) {
+            const meta = blocks[index].meta
+            if (isObject(meta) && typeof meta.codexTurnId === 'string') return
+        }
+        targetIndex = blocks.length - 1
+    }
     let firstIndex = -1
-    for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    for (let index = targetIndex; index >= 0; index -= 1) {
         if (!isSummaryTarget(blocks[index])) break
         firstIndex = index
     }
@@ -94,7 +105,21 @@ function attachCodexRoundSummaryToLatestGroup(blocks: ChatBlock[], summary: Roun
 
     const firstBlock = blocks[firstIndex]
     if (isSummaryTarget(firstBlock)) {
-        firstBlock.roundSummary = summary
+        const previousSummary = firstBlock.roundSummary
+        if (previousSummary?.turnId && summary.turnId && previousSummary.turnId !== summary.turnId) {
+            for (let index = targetIndex + 1; index < blocks.length && isSummaryTarget(blocks[index]); index += 1) {
+                const meta = blocks[index].meta
+                if (isObject(meta) && meta.codexTurnId === previousSummary.turnId) return
+            }
+        }
+        const previous = previousSummary?.provider === 'codex'
+            && (!summary.turnId || previousSummary.turnId === summary.turnId) ? previousSummary : undefined
+        firstBlock.roundSummary = {
+            ...previous,
+            ...summary,
+            modelUsage: summary.usage ? summary.modelUsage : previous?.modelUsage ?? summary.modelUsage,
+            durationMs: summary.durationMs ?? previous?.durationMs
+        }
     }
 }
 
@@ -507,6 +532,7 @@ export function reduceTimeline(
                 const tokenCount = msg.content as {
                     type: 'token-count'
                     provider?: 'codex'
+                    turnId?: string
                     model?: string | null
                 }
                 if (
@@ -515,16 +541,10 @@ export function reduceTimeline(
                     && msg.usage.scope_role !== 'child'
                 ) {
                     const model = tokenCount.model ?? undefined
-                    const displayUsage = model
-                        ? msg.usage
-                        : {
-                            ...msg.usage,
-                            cache_creation_input_tokens: undefined,
-                            cache_read_input_tokens: undefined
-                        }
                     attachCodexRoundSummaryToLatestGroup(blocks, {
                         provider: 'codex',
-                        usage: displayUsage,
+                        turnId: tokenCount.turnId,
+                        usage: msg.usage,
                         modelUsage: model
                             ? {
                                 [model]: {
@@ -552,18 +572,38 @@ export function reduceTimeline(
                     && !(block.kind === 'cli-output' && block.source === 'user')
                 let firstIndex = -1
                 for (let index = blocks.length - 1; index >= 0; index -= 1) {
-                    if (!isSummaryTarget(blocks[index])) break
+                    const block = blocks[index]
+                    if (block.kind === 'user-text' || (block.kind === 'cli-output' && block.source === 'user')) break
+                    // Ignore trailing notices, but never cross a rendered response
+                    // boundary after locating the latest assistant group.
+                    if (block.kind === 'agent-event') {
+                        if (firstIndex !== -1) break
+                        continue
+                    }
+                    if (!isSummaryTarget(block)) break
                     firstIndex = index
                 }
                 if (firstIndex !== -1) {
-                    const firstBlock = blocks[firstIndex]
-                    if (isSummaryTarget(firstBlock)) {
-                        firstBlock.roundSummary = summary
-                    }
+                    const summaryTarget = blocks[firstIndex]
+                    if (isSummaryTarget(summaryTarget)) summaryTarget.roundSummary = summary
                 }
                 continue
             }
             if (msg.content.type === 'turn-duration') {
+                if (msg.content.provider === 'codex') {
+                    // The pair rides conditionally: a later usage summary must
+                    // not wipe a duration summary's generation fields.
+                    const durationContent = msg.content as { generationMs?: unknown; generationOutputTokens?: unknown }
+                    const generationMs = typeof durationContent.generationMs === 'number' ? durationContent.generationMs : undefined
+                    const generationOutputTokens = typeof durationContent.generationOutputTokens === 'number' ? durationContent.generationOutputTokens : undefined
+                    const generation = generationMs !== undefined && generationOutputTokens !== undefined
+                        ? { generationMs, generationOutputTokens } : {}
+                    attachCodexRoundSummaryToLatestGroup(blocks, {
+                        provider: 'codex', turnId: msg.content.turnId as string, modelUsage: {}, numTurns: 1, durationMs: msg.content.durationMs as number,
+                        ...generation
+                    })
+                    continue
+                }
                 const targetId = msg.content.targetMessageId
                 const durationMs = msg.content.durationMs as number
                 type DurationBearingBlock = AgentTextBlock | AgentReasoningBlock | CliOutputBlock | ToolCallBlock
@@ -852,6 +892,10 @@ export function reduceTimeline(
                     if (streamId) {
                         const existing = textBlocksByStreamId.get(streamId)
                         if (existing) {
+                            existing.sourceMessageIds ??= []
+                            if (!existing.sourceMessageIds.includes(msg.id)) {
+                                existing.sourceMessageIds.push(msg.id)
+                            }
                             existing.text = c.text
                             existing.usage = msg.usage
                             existing.model = msg.model
@@ -863,13 +907,11 @@ export function reduceTimeline(
 
                     const block: AgentTextBlock = {
                         kind: 'agent-text',
-                        // Streamed snapshots under one stream id arrive as
-                        // separate message rows that the window keeps swapping
-                        // for newer rows. Deriving the id from the stream id
-                        // (unique per stream) keeps the block identity stable
-                        // across snapshots so the rendered component is
-                        // updated in place instead of being remounted.
+                        // Stream-stable identity keeps the rendered component
+                        // mounted while retaining every raw message ID for
+                        // content-search navigation.
                         id: streamId ?? `${msg.id}:${idx}`,
+                        sourceMessageIds: [msg.id],
                         localId: msg.localId,
                         createdAt: msg.createdAt,
                         invokedAt: msg.invokedAt,
@@ -906,6 +948,10 @@ export function reduceTimeline(
                     if (streamId) {
                         const existing = reasoningBlocksByStreamId.get(streamId)
                         if (existing) {
+                            existing.sourceMessageIds ??= []
+                            if (!existing.sourceMessageIds.includes(msg.id)) {
+                                existing.sourceMessageIds.push(msg.id)
+                            }
                             existing.text = c.text
                             existing.usage = msg.usage
                             existing.model = msg.model
@@ -915,13 +961,17 @@ export function reduceTimeline(
                         }
                     }
 
+                    // Claude Code stores thinking with an empty body when the
+                    // content is not displayed. An empty block renders nothing
+                    // but still splits adjacent tool calls out of their group.
+                    if (c.text.trim().length === 0) continue
+
                     const block: AgentReasoningBlock = {
                         kind: 'agent-reasoning',
-                        // Same as agent-text above: a stream-stable id keeps
-                        // the reasoning panel mounted while its snapshots
-                        // arrive, so the smooth streaming continues from the
-                        // previous text instead of replaying from a remount.
+                        // Keep the reasoning panel mounted across snapshots,
+                        // while preserving every source row for search jumps.
                         id: streamId ?? `${msg.id}:${idx}`,
+                        sourceMessageIds: [msg.id],
                         localId: msg.localId,
                         createdAt: msg.createdAt,
                         invokedAt: msg.invokedAt,
@@ -1002,6 +1052,11 @@ export function reduceTimeline(
                         agentTimestamp: msg.agentTimestamp
                     })
 
+                    if (isObject(msg.meta) && typeof msg.meta.codexTurnId === 'string') {
+                        if (!isObject(block.meta) || block.meta.codexTurnId !== msg.meta.codexTurnId) block.roundSummary = undefined
+                        block.meta = msg.meta
+                    }
+
                     if (block.tool.state === 'pending') {
                         block.tool = { ...block.tool, state: 'running' }
                     }
@@ -1014,6 +1069,7 @@ export function reduceTimeline(
                     // null exec timestamp is a no-op, leaving exec start unset so
                     // toolDurationMs falls back to hub times on both sides.
                     setEarliestStartedAt(block, msg.createdAt)
+                    if (block.tool.startUnavailable) block.tool = { ...block.tool, startUnavailable: false }
                     setEarliestExecStartedAt(block, msg.agentTimestamp ?? null)
 
                     if (isSubagentToolName(c.name) && !context.consumedGroupIds.has(msg.id)) {
@@ -1068,6 +1124,7 @@ export function reduceTimeline(
                         return permissionFromResult ?? permissionEntry?.permission
                     })()
 
+                    const existing = toolBlocksById.get(c.tool_use_id)
                     const block = ensureToolBlock(blocks, toolBlocksById, c.tool_use_id, {
                         createdAt: msg.createdAt,
                         invokedAt: msg.invokedAt,
@@ -1075,8 +1132,8 @@ export function reduceTimeline(
                         model: msg.model,
                         localId: msg.localId,
                         meta: msg.meta,
-                        name: permissionEntry?.toolName ?? 'Tool',
-                        input: permissionEntry?.input ?? null,
+                        name: permissionEntry?.toolName ?? (c.commandExecution ? 'CodexBash' : 'Tool'),
+                        input: existing?.tool.input ?? permissionEntry?.input ?? c.commandExecution?.input ?? null,
                         description: null,
                         permission
                         // NOTE: no agentTimestamp seed here. execStartedAt must
@@ -1090,6 +1147,10 @@ export function reduceTimeline(
 
                     block.tool = {
                         ...block.tool,
+                        ...(c.commandExecution ? {
+                            executionDurationMs: c.commandExecution.durationMs ?? block.tool.executionDurationMs,
+                            ...(!existing ? { startedAt: null, startUnavailable: true } : {})
+                        } : {}),
                         result: c.content,
                         completedAt: msg.createdAt,
                         // Only a real Claude timestamp — never the hub receive
